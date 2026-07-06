@@ -624,10 +624,11 @@ describe('createWebhookApp', () => {
       expect(logger.info).toHaveBeenCalledOnce();
       // The openclaw logger does not do printf %s substitution, so the whole
       // line is a single pre-interpolated string.
+      // Structural fields (event, account) are always logged; the message body
+      // is gated behind BITRIX24_DEBUG (PII) so it is not asserted here.
       const [line] = logger.info.mock.calls[0];
       expect(line).toContain('raw event=ONIMBOTV2MESSAGEADD');
       expect(line).toContain(`account=${ACCOUNT_ID}`);
-      expect(line).toContain('Ping!');
     } finally {
       await stopServer(server);
     }

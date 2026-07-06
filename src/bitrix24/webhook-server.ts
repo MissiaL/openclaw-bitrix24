@@ -100,9 +100,14 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
       // the real v2 payload shape is visible in production logs even when
       // parsing later fails, returns null, or a field turns out to be named
       // differently than expected.
+      // Structural fields (event name, account) always; the full body carries
+      // user PII from a live portal, so gate it behind BITRIX24_DEBUG (enable
+      // for a live-tuning session, unset in production).
+      const rawBodyDiag = process.env.BITRIX24_DEBUG
+        ? ` body=${JSON.stringify(body).slice(0, 2000)}`
+        : '';
       handlers.logger?.info(
-        `[bitrix24-webhook] raw event=${body?.event} account=${accountId} ` +
-          `body=${JSON.stringify(body).slice(0, 2000)}`,
+        `[bitrix24-webhook] raw event=${body?.event} account=${accountId}${rawBodyDiag}`,
       );
 
       if (handlers.hasAccount && !handlers.hasAccount(accountId)) {

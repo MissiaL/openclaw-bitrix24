@@ -21,15 +21,21 @@ import type { Bitrix24Channel } from './channel.js';
  * prints the format string literally. All diagnostics here use template
  * literals so the real values show up in production logs.
  */
+// Verbose diagnostics include user message content / reply bodies (PII from a
+// live portal). They are OFF by default and only emitted when BITRIX24_DEBUG is
+// set — enable it for a live-tuning session, then unset it in production.
+const debugPayloads = (): boolean => Boolean(process.env.BITRIX24_DEBUG);
+
 export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
   channel.onMessage(async (accountId: string, msg: IncomingMessage) => {
     try {
-      // Entry log: full shape of what the webhook parser handed us, so a
-      // human can see the real field values live.
+      // Entry log: structural fields always; message content only under debug.
+      const textDiag = debugPayloads()
+        ? ` text=${JSON.stringify((msg.text ?? '').slice(0, 200))}`
+        : '';
       api.logger.info(
         `[bitrix24] inbound message acct=${accountId} dialog=${msg.dialogId} ` +
-          `from=${msg.fromUserId} chatType=${msg.chatType} len=${msg.text?.length ?? 0} ` +
-          `text=${JSON.stringify((msg.text ?? '').slice(0, 200))}`,
+          `from=${msg.fromUserId} chatType=${msg.chatType} len=${msg.text?.length ?? 0}${textDiag}`,
       );
 
       const rc = api.runtime?.channel;
@@ -113,9 +119,11 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
             try {
               const keys =
                 payload && typeof payload === 'object' ? Object.keys(payload) : payload;
+              const sample = debugPayloads()
+                ? ` sample=${JSON.stringify(payload).slice(0, 400)}`
+                : '';
               api.logger.info(
-                `[bitrix24] LIVE-TUNE delivery payload keys=${JSON.stringify(keys)} ` +
-                  `sample=${JSON.stringify(payload).slice(0, 400)}`,
+                `[bitrix24] LIVE-TUNE delivery payload keys=${JSON.stringify(keys)}${sample}`,
               );
               const text = payload?.text ?? payload?.body ?? '';
               if (!text) {
@@ -150,13 +158,23 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       };
 
       // Log the full dispatch args (functions elided) before dispatch — the
-      // key diagnostic for tomorrow's live tuning.
-      api.logger.info(
-        `[bitrix24] LIVE-TUNE dispatchReply args=${JSON.stringify(
-          dispatchArgs,
-          (_key, value) => (typeof value === 'function' ? '[fn]' : value),
-        ).slice(0, 4000)}`,
-      );
+      // key diagnostic for tomorrow's live tuning. Contains message content
+      // (ctxPayload.Body), so gate it behind BITRIX24_DEBUG.
+      if (debugPayloads()) {
+        api.logger.info(
+          `[bitrix24] LIVE-TUNE dispatchReply args=${JSON.stringify(
+            dispatchArgs,
+            (_key, value) => (typeof value === 'function' ? '[fn]' : value),
+          ).slice(0, 4000)}`,
+        );
+      } else {
+        api.logger.info(
+          `[bitrix24] LIVE-TUNE dispatchReply sessionKey=${sessionKey} ` +
+            `hasFinalize=${typeof rc.reply?.finalizeInboundContext === 'function'} ` +
+            `hasRecord=${typeof rc.session?.recordInboundSession === 'function'} ` +
+            `hasBufferedDispatcher=${typeof rc.reply?.dispatchReplyWithBufferedBlockDispatcher === 'function'}`,
+        );
+      }
 
       await rc.inbound.dispatchReply(dispatchArgs);
       api.logger.info(`[bitrix24] dispatchReply returned for dialog=${msg.dialogId}`);
