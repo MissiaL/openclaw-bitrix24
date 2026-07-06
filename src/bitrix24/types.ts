@@ -21,6 +21,10 @@ export interface Bitrix24ClientConfig {
   auth: BitrixAuth;
   rateLimit?: number; // req/sec, default 2
   timeout?: number;   // ms, default 30000
+  /** Max retries on a Bitrix24 rate-limit error (QUERY_LIMIT_EXCEEDED / OVERLOAD_LIMIT / OPERATION_TIME_LIMIT / HTTP 503), default 3. */
+  rateLimitMaxRetries?: number;
+  /** Base delay in ms for rate-limit retry backoff (delay = baseDelayMs * 2^attempt), default 1000. */
+  rateLimitBaseDelayMs?: number;
   /** Called after OAuth tokens are refreshed. Use to persist new tokens. */
   onTokenRefresh?: (tokens: {
     accessToken: string;

@@ -143,6 +143,72 @@ describe('Bitrix24Client.callMethod', () => {
   });
 });
 
+// ── Bitrix24Client rate-limit retry ─────────────────────────────────────────
+
+describe('Bitrix24Client rate-limit retry', () => {
+  function makeRetryClient(overrides: Record<string, any> = {}): Bitrix24Client {
+    return new Bitrix24Client({
+      domain: 'test.bitrix24.ru',
+      auth: { type: 'webhook', webhookUrl: 'https://test.bitrix24.ru/rest/1/abc/' },
+      rateLimitBaseDelayMs: 0,
+      ...overrides,
+    });
+  }
+
+  it('retries once on QUERY_LIMIT_EXCEEDED and resolves on success', async () => {
+    mockPost
+      .mockResolvedValueOnce({
+        data: { error: 'QUERY_LIMIT_EXCEEDED', error_description: 'Too many requests' },
+      })
+      .mockResolvedValueOnce({ data: { result: 'ok' } });
+
+    const client = makeRetryClient();
+
+    await expect(client.callMethod('crm.deal.get', { id: 1 })).resolves.toBe('ok');
+    expect(mockPost).toHaveBeenCalledTimes(2);
+    client.destroy();
+  });
+
+  it('rejects with Bitrix24Error after exhausting maxRetries on persistent rate-limit error', async () => {
+    mockPost.mockResolvedValue({
+      data: { error: 'QUERY_LIMIT_EXCEEDED', error_description: 'Too many requests' },
+    });
+
+    const maxRetries = 3;
+    const client = makeRetryClient({ rateLimitMaxRetries: maxRetries });
+
+    await expect(client.callMethod('crm.deal.get', { id: 1 })).rejects.toMatchObject({
+      code: 'QUERY_LIMIT_EXCEEDED',
+    });
+    expect(mockPost).toHaveBeenCalledTimes(1 + maxRetries);
+    client.destroy();
+  });
+
+  it('retries once on HTTP 503 and resolves on success', async () => {
+    mockPost
+      .mockRejectedValueOnce({ response: { status: 503 } })
+      .mockResolvedValueOnce({ data: { result: 'ok' } });
+
+    const client = makeRetryClient();
+
+    await expect(client.callMethod('crm.deal.get', { id: 1 })).resolves.toBe('ok');
+    expect(mockPost).toHaveBeenCalledTimes(2);
+    client.destroy();
+  });
+
+  it('does not retry a non-rate-limit error', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: { error: 'ACCESS_DENIED', error_description: 'Insufficient permissions' },
+    });
+
+    const client = makeRetryClient();
+
+    await expect(client.callMethod('crm.deal.get', { id: 1 })).rejects.toThrow(Bitrix24Error);
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    client.destroy();
+  });
+});
+
 // ── Bitrix24Client.probe ─────────────────────────────────────────────────────
 
 describe('Bitrix24Client.probe', () => {

@@ -65,6 +65,12 @@ class RateLimiter {
 const TOKEN_ERROR_CODES = ['expired_token', 'invalid_token', 'NO_AUTH_FOUND'];
 
 /**
+ * Error codes that indicate a Bitrix24 rate limit (leaky bucket) was exhausted.
+ * See https://apidocs.bitrix24.ru/limits.html and .../system-errors.html
+ */
+const RATE_LIMIT_ERROR_CODES = ['QUERY_LIMIT_EXCEEDED', 'OVERLOAD_LIMIT', 'OPERATION_TIME_LIMIT'];
+
+/**
  * Bitrix24 REST API client.
  * Supports both webhook URL and OAuth authentication.
  * Built-in rate limiting (token bucket, default 2 req/s).
@@ -170,52 +176,84 @@ export class Bitrix24Client {
     });
   }
 
+  // ── Request helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Acquire a rate-limiter slot and POST once. Does not interpret the response —
+   * callers decide how to handle `data.error` / thrown errors.
+   */
+  private async postOnce<T>(
+    method: string,
+    params: Record<string, any>,
+  ): Promise<{ data: BitrixApiResponse<T> }> {
+    await this.limiter.acquire();
+    const authParams = this.getAuthParams();
+    return this.http.post<BitrixApiResponse<T>>(`/${method}`, { ...params, ...authParams });
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
   /**
    * Call any Bitrix24 REST API method.
    * Automatically refreshes OAuth tokens if expired (proactive + reactive).
+   * Retries with exponential backoff on Bitrix24 rate-limit errors
+   * (QUERY_LIMIT_EXCEEDED / OVERLOAD_LIMIT / OPERATION_TIME_LIMIT / HTTP 503),
+   * independent of the OAuth token-refresh retry above.
    */
   async callMethod<T = any>(method: string, params: Record<string, any> = {}): Promise<T> {
     await this.refreshIfNeeded();
-    await this.limiter.acquire();
 
-    const authParams = this.getAuthParams();
-    const response = await this.http.post<BitrixApiResponse<T>>(
-      `/${method}`,
-      { ...params, ...authParams },
-    );
+    const maxRetries = this.config.rateLimitMaxRetries ?? 3;
+    const baseDelayMs = this.config.rateLimitBaseDelayMs ?? 1000;
 
-    if (response.data.error) {
-      // Reactive refresh: token expired between check and call
-      if (TOKEN_ERROR_CODES.includes(response.data.error) && this.canRefresh()) {
-        await this.forceRefresh();
-
-        // Retry once
-        await this.limiter.acquire();
-        const retryAuth = this.getAuthParams();
-        const retryResponse = await this.http.post<BitrixApiResponse<T>>(
-          `/${method}`,
-          { ...params, ...retryAuth },
-        );
-        if (retryResponse.data.error) {
-          throw new Bitrix24Error(
-            retryResponse.data.error,
-            retryResponse.data.error_description ?? '',
-            method,
-          );
+    for (let attempt = 0; ; attempt++) {
+      let response: { data: BitrixApiResponse<T> };
+      try {
+        response = await this.postOnce<T>(method, params);
+      } catch (err) {
+        if (isRateLimitHttpError(err) && attempt < maxRetries) {
+          await this.sleep(baseDelayMs * 2 ** attempt);
+          continue;
         }
-        return retryResponse.data.result;
+        throw err;
       }
 
-      throw new Bitrix24Error(
-        response.data.error,
-        response.data.error_description ?? '',
-        method,
-      );
-    }
+      if (response.data.error) {
+        // Reactive refresh: token expired between check and call.
+        // This retry is separate from the rate-limit backoff loop — a single
+        // retry-once, not attempt-indexed.
+        if (TOKEN_ERROR_CODES.includes(response.data.error) && this.canRefresh()) {
+          await this.forceRefresh();
 
-    return response.data.result;
+          const retryResponse = await this.postOnce<T>(method, params);
+          if (retryResponse.data.error) {
+            throw new Bitrix24Error(
+              retryResponse.data.error,
+              retryResponse.data.error_description ?? '',
+              method,
+            );
+          }
+          return retryResponse.data.result;
+        }
+
+        if (RATE_LIMIT_ERROR_CODES.includes(response.data.error) && attempt < maxRetries) {
+          await this.sleep(baseDelayMs * 2 ** attempt);
+          continue;
+        }
+
+        throw new Bitrix24Error(
+          response.data.error,
+          response.data.error_description ?? '',
+          method,
+        );
+      }
+
+      return response.data.result;
+    }
   }
 
   /**
@@ -340,6 +378,18 @@ function isAxiosAuthError(err: unknown): boolean {
   if (err && typeof err === 'object' && 'response' in err) {
     const resp = (err as any).response;
     return resp?.status === 401 || resp?.status === 403;
+  }
+  return false;
+}
+
+/**
+ * Check if an axios error is an HTTP 503, which Bitrix24 may return
+ * on rate-limit exhaustion instead of a `data.error` payload.
+ */
+function isRateLimitHttpError(err: unknown): boolean {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const resp = (err as any).response;
+    return resp?.status === 503;
   }
   return false;
 }
