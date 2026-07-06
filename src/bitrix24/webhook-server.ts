@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import express, { Router, type Express, type Request, type Response } from 'express';
 import type { Bitrix24MessageEvent, Bitrix24WelcomeEvent, Bitrix24BotDeleteEvent, IncomingMessage } from './types.js';
 import { parseMessageEvent, parseWelcomeEvent, parseBotDeleteEvent, verifyApplicationToken } from './receive.js';
 
@@ -82,4 +82,20 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
   });
 
   return router;
+}
+
+/**
+ * Create a self-contained Express app for Bitrix24 webhooks.
+ *
+ * Modern openclaw gateways pass raw Node req/res to plugin HTTP routes
+ * without any body parsing, so the app must carry its own parsers.
+ * Bitrix24 sends form-urlencoded with PHP-style nesting; extended mode
+ * is required to reconstruct nested objects.
+ */
+export function createWebhookApp(handlers: WebhookHandlers): Express {
+  const app = express();
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+  app.use(createWebhookRouter(handlers));
+  return app;
 }

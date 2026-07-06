@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
-import { createWebhookRouter, type WebhookHandlers } from '../../src/bitrix24/webhook-server.js';
+import { createWebhookRouter, createWebhookApp, type WebhookHandlers } from '../../src/bitrix24/webhook-server.js';
 import type {
   Bitrix24MessageEvent,
   Bitrix24WelcomeEvent,
@@ -10,14 +10,6 @@ import type {
 } from '../../src/bitrix24/types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function createApp(handlers: WebhookHandlers): express.Express {
-  const app = express();
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
-  app.use(createWebhookRouter(handlers));
-  return app;
-}
 
 function startServer(app: express.Express): Promise<{ server: Server; baseUrl: string }> {
   return new Promise((resolve) => {
@@ -130,7 +122,7 @@ describe('Webhook server integration', () => {
     onBotDelete = vi.fn();
     getApplicationToken = vi.fn();
 
-    const app = createApp({
+    const app = createWebhookApp({
       onMessage,
       onWelcome,
       onBotDelete,
@@ -383,5 +375,46 @@ describe('Webhook server integration', () => {
       expect(res.status).toBe(200);
       expect(onMessage).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('createWebhookApp', () => {
+  it('parses form-urlencoded PHP-style nested bodies (Bitrix24 native format)', async () => {
+    const onMessage = vi.fn();
+    const app = createWebhookApp({ onMessage });
+    const { server, baseUrl } = await startServer(app);
+    try {
+      const params = new URLSearchParams();
+      params.set('event', 'ONIMBOTMESSAGEADD');
+      params.set('data[BOT][0][BOT_ID]', '42');
+      params.set('data[BOT][0][BOT_CODE]', 'openclaw_acct-test-123');
+      params.set('data[PARAMS][MESSAGE]', 'privet');
+      params.set('data[PARAMS][DIALOG_ID]', '123');
+      params.set('data[PARAMS][FROM_USER_ID]', '7');
+      params.set('data[USER][ID]', '7');
+      params.set('data[USER][NAME]', 'Test User');
+      const res = await fetch(`${baseUrl}/webhook/bitrix24/${ACCOUNT_ID}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      expect(res.status).toBe(200);
+      expect(onMessage).toHaveBeenCalledOnce();
+    } finally {
+      await stopServer(server);
+    }
+  });
+
+  it('parses JSON bodies', async () => {
+    const onMessage = vi.fn();
+    const app = createWebhookApp({ onMessage });
+    const { server, baseUrl } = await startServer(app);
+    try {
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}/message`, makeMessageEvent());
+      expect(res.status).toBe(200);
+      expect(onMessage).toHaveBeenCalledOnce();
+    } finally {
+      await stopServer(server);
+    }
   });
 });
