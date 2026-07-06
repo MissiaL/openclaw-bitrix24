@@ -59,9 +59,15 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       // explicit agentId.
       const sessionKey = `bitrix24:${accountId}:${msg.dialogId}`;
       const agentId = undefined;
-      const storePath = undefined;
+      // The host's session recorder requires a non-empty storePath; resolve it
+      // from the configured session store via the runtime helper (falls back to
+      // the store path string itself if the helper is absent).
+      const storePath =
+        (typeof rc.session?.resolveStorePath === 'function'
+          ? rc.session.resolveStorePath(api.config?.session?.store, { agentId })
+          : api.config?.session?.store) || undefined;
       api.logger.info(
-        `[bitrix24] LIVE-TUNE: agentId/storePath left undefined (sessionKey=${sessionKey}) — host expected to resolve defaults`,
+        `[bitrix24] LIVE-TUNE: sessionKey=${sessionKey} storePath=${storePath ?? '(none)'} agentId=(default)`,
       );
 
       const senderName =
@@ -157,24 +163,21 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
         },
       };
 
-      // Log the full dispatch args (functions elided) before dispatch — the
-      // key diagnostic for tomorrow's live tuning. Contains message content
-      // (ctxPayload.Body), so gate it behind BITRIX24_DEBUG.
+      // Diagnostic before dispatch. Never log `cfg` (it is api.config — full of
+      // secrets: gateway token, other channels' bot tokens). Under debug, log
+      // only the ctxPayload (message content is PII but the whole point of the
+      // debug session); always log which host helpers resolved.
       if (debugPayloads()) {
         api.logger.info(
-          `[bitrix24] LIVE-TUNE dispatchReply args=${JSON.stringify(
-            dispatchArgs,
-            (_key, value) => (typeof value === 'function' ? '[fn]' : value),
-          ).slice(0, 4000)}`,
-        );
-      } else {
-        api.logger.info(
-          `[bitrix24] LIVE-TUNE dispatchReply sessionKey=${sessionKey} ` +
-            `hasFinalize=${typeof rc.reply?.finalizeInboundContext === 'function'} ` +
-            `hasRecord=${typeof rc.session?.recordInboundSession === 'function'} ` +
-            `hasBufferedDispatcher=${typeof rc.reply?.dispatchReplyWithBufferedBlockDispatcher === 'function'}`,
+          `[bitrix24] LIVE-TUNE ctxPayload=${JSON.stringify(ctxPayload).slice(0, 2000)}`,
         );
       }
+      api.logger.info(
+        `[bitrix24] LIVE-TUNE dispatch sessionKey=${sessionKey} storePath=${storePath ?? '(none)'} ` +
+          `hasFinalize=${typeof rc.reply?.finalizeInboundContext === 'function'} ` +
+          `hasRecord=${typeof rc.session?.recordInboundSession === 'function'} ` +
+          `hasBufferedDispatcher=${typeof rc.reply?.dispatchReplyWithBufferedBlockDispatcher === 'function'}`,
+      );
 
       await rc.inbound.dispatchReply(dispatchArgs);
       api.logger.info(`[bitrix24] dispatchReply returned for dialog=${msg.dialogId}`);
