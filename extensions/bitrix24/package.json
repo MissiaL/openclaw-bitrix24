@@ -4,7 +4,8 @@
   "description": "Bitrix24 channel plugin for OpenClaw — chat with your AI agent through Bitrix24 Messenger",
   "type": "module",
   "openclaw": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "runtimeExtensions": ["./dist/extensions/bitrix24/src/index.js"]
   },
   "main": "dist/extensions/bitrix24/src/index.js",
   "types": "dist/extensions/bitrix24/src/index.d.ts",
