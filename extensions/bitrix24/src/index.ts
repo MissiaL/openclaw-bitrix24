@@ -1,6 +1,6 @@
 import { Bitrix24Channel } from './channel.js';
 import { setBitrix24Runtime, type PluginRuntime } from './runtime.js';
-import { createWebhookRouter } from '../../../src/bitrix24/webhook-server.js';
+import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
 import { resolvePublicUrl } from './public-url.js';
 import {
@@ -55,6 +55,7 @@ export default function register(api: any): void {
         label: 'Bitrix24',
         selectionLabel: 'Bitrix24 Messenger',
         blurb: 'Chat with your OpenClaw agent through Bitrix24 Messenger.',
+        docsPath: '/channels/bitrix24',
         aliases: ['b24', 'bitrix'],
       },
       capabilities: { chatTypes: ['direct', 'group'] },
@@ -83,7 +84,7 @@ export default function register(api: any): void {
   });
 
   // Register webhook service for incoming Bitrix24 events
-  const webhookRouter = createWebhookRouter({
+  const webhookApp = createWebhookApp({
     onMessage: (accountId, msg) => {
       channel.handleIncomingMessage(accountId, msg);
     },
@@ -105,9 +106,24 @@ export default function register(api: any): void {
     getApplicationToken: (accountId) => channel.getApplicationToken(accountId),
   });
 
+  // Modern SDK (2026.4+): raw Node handler mounted by the gateway.
+  // Bitrix24 cannot send a gateway token, so the route opts out of gateway auth.
+  if (typeof api.registerHttpRoute === 'function') {
+    api.registerHttpRoute({
+      path: '/webhook/bitrix24/',
+      match: 'prefix',
+      auth: 'plugin',
+      handler: (req: any, res: any) => {
+        webhookApp(req, res);
+        return true;
+      },
+    });
+  }
+
   api.registerService({
     id: 'bitrix24-webhook',
-    router: webhookRouter,
+    // Legacy hosts (< 2026.4) mounted this router themselves; modern hosts ignore the field.
+    router: webhookApp,
     start: async () => {
       const accounts = channel.listEnabledAccounts();
 
