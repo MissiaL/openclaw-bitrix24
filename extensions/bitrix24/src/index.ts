@@ -1,6 +1,6 @@
 import { Bitrix24Channel } from './channel.js';
 import { setBitrix24Runtime } from './runtime.js';
-import type { ConfigMutator } from './persist.js';
+import { persistConfigValue, type ConfigMutator } from './persist.js';
 import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
 import { resolvePublicUrl } from './public-url.js';
@@ -59,21 +59,34 @@ export default function register(api: any): void {
       return;
     }
 
-    await mutateConfigFile({
-      afterWrite: { mode: 'auto' },
-      mutate: (draft: any) => {
-        const bitrix24 = (draft.channels ??= {}).bitrix24 ??= {};
-        const accounts: any[] = (bitrix24.accounts ??= []);
-        let account = accounts.find((a) => a?.id === accountId);
-        if (!account) {
-          account = { id: accountId };
-          accounts.push(account);
-        }
-        account.accessToken = tokens.accessToken;
-        account.refreshToken = tokens.refreshToken;
-        account.expiresAt = tokens.expiresAt;
-      },
-    });
+    // This callback is awaited from Bitrix24Client.callMethod's hot path
+    // (doRefresh -> onTokenRefresh) whenever an unrelated API call triggers a
+    // token refresh. Persistence is best-effort: a config-write failure (host
+    // mid-restart, file lock, validation error) must never fail the live API
+    // call that triggered the refresh, so we swallow and warn instead of
+    // letting the rejection propagate.
+    try {
+      await mutateConfigFile({
+        afterWrite: { mode: 'auto' },
+        mutate: (draft: any) => {
+          const bitrix24 = (draft.channels ??= {}).bitrix24 ??= {};
+          const accounts: any[] = (bitrix24.accounts ??= []);
+          let account = accounts.find((a) => a?.id === accountId);
+          if (!account) {
+            account = { id: accountId };
+            accounts.push(account);
+          }
+          account.accessToken = tokens.accessToken;
+          account.refreshToken = tokens.refreshToken;
+          account.expiresAt = tokens.expiresAt;
+        },
+      });
+    } catch (err) {
+      api.logger.warn(
+        `[bitrix24] failed to persist refreshed OAuth tokens for "${accountId}"; continuing without durable write:`,
+        err,
+      );
+    }
   });
 
   // Register the channel
@@ -247,8 +260,19 @@ export default function register(api: any): void {
           return { text: formatConnectionError(result.error ?? 'Unknown error') };
         }
 
-        // Save webhook URL to config
-        await api.persistConfig?.('channels.bitrix24.webhookUrl', webhookUrl);
+        // Save webhook URL to config. Best-effort: a persistence failure here
+        // must not prevent the channel from being configured and used for
+        // this session, so warn and continue rather than throwing.
+        try {
+          await persistConfigValue({
+            mutateConfigFile,
+            logger: api.logger,
+            segments: ['channels', 'bitrix24', 'webhookUrl'],
+            value: webhookUrl,
+          });
+        } catch (err) {
+          api.logger.warn('[bitrix24] failed to persist webhookUrl; continuing without durable write:', err);
+        }
 
         // Reconfigure channel with new webhook
         channel.configure({ ...channelConfig, webhookUrl });
