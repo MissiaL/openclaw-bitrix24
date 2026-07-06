@@ -10,7 +10,7 @@ Channel plugin and skill that connect your OpenClaw AI agent to Bitrix24. Users 
 ## Requirements
 
 - **openclaw >= 2026.4** to use the modern webhook route (`api.registerHttpRoute`, mounted under `/webhook/bitrix24/` with plugin auth -- Bitrix24 cannot send a gateway token, so this route opts out of gateway auth).
-- On older hosts, the plugin falls back to the legacy `registerService.router` mount, so it keeps working without the modern route -- just without plugin-scoped auth.
+- On older hosts, the plugin falls back to the legacy `registerService.router` mount, which is equally unauthenticated -- `auth: 'plugin'` is an opt-out of gateway auth, not an added protection, so neither path is more secure than the other.
 
 ## Quick Start
 
@@ -82,6 +82,13 @@ openclaw config set channels.bitrix24.publicUrl https://bot.example.com
 ```
 
 If `publicUrl` changes after the bot is already registered, the plugin detects the change on the next startup and calls `imbot.update` to re-point `EVENT_MESSAGE_ADD`, `EVENT_WELCOME_MESSAGE`, and `EVENT_BOT_DELETE` at the new base -- no manual re-registration needed. The last base registered per account is tracked internally under `channels.bitrix24.registeredWebhookBase.<accountId>`; this key is managed by the plugin and should not be edited by hand.
+
+### Security
+
+The `/webhook/bitrix24/...` endpoint is publicly reachable and unauthenticated -- `auth: 'plugin'` (and the legacy `registerService.router` fallback) both skip gateway auth because Bitrix24 cannot send a gateway token. Anyone who knows (or guesses) your `publicUrl` can POST fabricated events to it. To reduce exposure:
+
+- Keep `publicUrl` non-guessable where possible, e.g. a random path segment behind a reverse proxy, or a firewall allow-list restricted to Bitrix24's IP ranges.
+- Treat all inbound messages as untrusted input -- the plugin does not verify that a request actually originated from Bitrix24.
 
 ### Option B: Multi-account / OAuth
 

@@ -24,6 +24,14 @@ describe('plugin register(api)', () => {
     expect(params.match).toBe('prefix');
     expect(params.auth).toBe('plugin');
     expect(typeof params.handler).toBe('function');
+
+    // Both registrations must happen in the same run: modern hosts use the
+    // HTTP route above, but registerService.router is still wired for older
+    // hosts that ignore registerHttpRoute.
+    expect(api.registerService).toHaveBeenCalledOnce();
+    const service = api.registerService.mock.calls[0][0];
+    expect(service.id).toBe('bitrix24-webhook');
+    expect(service.router).toBeDefined();
   });
 
   it('keeps legacy service router for older hosts', () => {

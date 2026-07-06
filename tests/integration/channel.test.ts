@@ -269,6 +269,45 @@ describe('Bitrix24Channel integration', () => {
         TEST_WEBHOOK_BASE_URL,
       );
     });
+
+    it('calls imbot.update on first startup after upgrade (botId present, no stored registeredWebhookBase)', async () => {
+      // Simulates every existing install on first startup after upgrading to a version
+      // that tracks registeredWebhookBase: botId is already set from a prior registration,
+      // but the config predates the tracking key entirely (not even an empty map).
+      const trackingChannel = new Bitrix24Channel();
+      trackingChannel.configure({
+        accounts: [
+          {
+            id: TEST_ACCOUNT_ID,
+            webhookUrl: TEST_WEBHOOK_URL,
+            domain: 'test-portal.bitrix24.ru',
+            botId: BOT_ID,
+            botCode: `openclaw_${TEST_ACCOUNT_ID}`,
+            bot: { name: 'Test Bot', color: 'PURPLE', workPosition: 'Test Assistant' },
+          },
+        ],
+      });
+
+      mockApiResponse('imbot.update', true);
+
+      await trackingChannel.startupAccount(TEST_ACCOUNT_ID);
+
+      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.update');
+      expect(updateCall).toBeDefined();
+      expect(updateCall![1]).toEqual({
+        CLIENT_ID: TEST_BOT_CLIENT_ID,
+        BOT_ID,
+        FIELDS: {
+          EVENT_MESSAGE_ADD: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}/message`,
+          EVENT_WELCOME_MESSAGE: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}/welcome`,
+          EVENT_BOT_DELETE: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}/delete`,
+        },
+      });
+
+      expect(runtime.persistRegisteredBase).toHaveBeenCalledWith(TEST_ACCOUNT_ID, TEST_WEBHOOK_BASE_URL);
+
+      trackingChannel.destroy();
+    });
   });
 
   // ── 3. sendTextMessage ───────────────────────────────────────────────────

@@ -56,6 +56,10 @@ The plugin needs your gateway's externally reachable base URL for Bitrix24's eve
 
 If `publicUrl` changes, the plugin calls `imbot.update` on the next startup to re-point the bot's event URLs automatically — no manual re-registration needed. The last registered base is tracked per account under `channels.bitrix24.registeredWebhookBase.<accountId>`; this is an internal, plugin-managed key — don't edit it by hand.
 
+### Security
+
+The webhook endpoint is publicly reachable and unauthenticated: `auth: 'plugin'` (and the legacy `registerService.router` fallback) both skip gateway auth, since Bitrix24 has no way to send a gateway token. Anyone who knows the URL can POST fabricated events. Keep `publicUrl` non-guessable where possible (a reverse-proxy path or a firewall allow-list for Bitrix24's IPs), and treat inbound messages as untrusted input.
+
 ## Multi-Account / OAuth
 
 ```yaml

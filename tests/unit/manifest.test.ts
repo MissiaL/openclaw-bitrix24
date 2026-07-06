@@ -19,4 +19,9 @@ describe('openclaw.plugin.json', () => {
   it('keeps publicUrl in the top-level configSchema too', () => {
     expect(manifest.configSchema.properties.publicUrl).toBeDefined();
   });
+
+  it('keeps channelConfigs copies in sync with the top-level schema and uiHints', () => {
+    expect(manifest.channelConfigs.bitrix24.schema).toEqual(manifest.configSchema);
+    expect(manifest.channelConfigs.bitrix24.uiHints).toEqual(manifest.uiHints);
+  });
 });
