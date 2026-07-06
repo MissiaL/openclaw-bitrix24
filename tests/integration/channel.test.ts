@@ -350,8 +350,8 @@ describe('Bitrix24Channel integration', () => {
 
       // Set up default responses for send flow
       mockApiResponses({
-        'imbot.chat.sendTyping': true,
-        'imbot.message.add': 1001,
+        'imbot.v2.Chat.InputAction.notify': { result: true },
+        'imbot.v2.Chat.Message.send': { id: 1001, uuidMap: {} },
       });
     });
 
@@ -362,72 +362,72 @@ describe('Bitrix24Channel integration', () => {
 
       // Verify typing indicator was sent
       const typingCall = mockPost.mock.calls.find(
-        (call) => call[0] === '/imbot.chat.sendTyping',
+        (call) => call[0] === '/imbot.v2.Chat.InputAction.notify',
       );
       expect(typingCall).toBeDefined();
-      expect(typingCall![1].CLIENT_ID).toBe(TEST_BOT_CLIENT_ID);
-      expect(typingCall![1].BOT_ID).toBe(BOT_ID);
-      expect(typingCall![1].DIALOG_ID).toBe(DIALOG_ID);
+      expect(typingCall![1].botToken).toBe(TEST_BOT_CLIENT_ID);
+      expect(typingCall![1].botId).toBe(BOT_ID);
+      expect(typingCall![1].dialogId).toBe(DIALOG_ID);
 
       // Verify message was sent with BB-code conversion
       const messageCall = mockPost.mock.calls.find(
-        (call) => call[0] === '/imbot.message.add',
+        (call) => call[0] === '/imbot.v2.Chat.Message.send',
       );
       expect(messageCall).toBeDefined();
-      expect(messageCall![1].CLIENT_ID).toBe(TEST_BOT_CLIENT_ID);
-      expect(messageCall![1].BOT_ID).toBe(BOT_ID);
-      expect(messageCall![1].DIALOG_ID).toBe(DIALOG_ID);
-      expect(messageCall![1].MESSAGE).toBe('Hello [b]world[/b]');
+      expect(messageCall![1].botToken).toBe(TEST_BOT_CLIENT_ID);
+      expect(messageCall![1].botId).toBe(BOT_ID);
+      expect(messageCall![1].dialogId).toBe(DIALOG_ID);
+      expect(messageCall![1].fields.message).toBe('Hello [b]world[/b]');
     });
 
     it('should send typing before message (call order)', async () => {
       await channel.sendTextMessage(TEST_ACCOUNT_ID, DIALOG_ID, 'test');
 
       const callOrder = mockPost.mock.calls.map((call) => call[0]);
-      const typingIndex = callOrder.indexOf('/imbot.chat.sendTyping');
-      const messageIndex = callOrder.indexOf('/imbot.message.add');
+      const typingIndex = callOrder.indexOf('/imbot.v2.Chat.InputAction.notify');
+      const messageIndex = callOrder.indexOf('/imbot.v2.Chat.Message.send');
 
       expect(typingIndex).toBeGreaterThanOrEqual(0);
       expect(messageIndex).toBeGreaterThan(typingIndex);
     });
 
-    it('should chunk and send multiple messages for long text (>4000 chars)', async () => {
-      // Build text that exceeds the 4000 char limit
+    it('should chunk and send multiple messages for long text (>18000 chars)', async () => {
+      // Build text that exceeds the 18000 char limit
       // Use paragraphs so chunking splits at \n\n boundaries
       const paragraph = 'This is a test paragraph with some content. ';
-      const longText = Array(120).fill(paragraph).join('\n\n');
+      const longText = Array(500).fill(paragraph).join('\n\n');
 
-      expect(longText.length).toBeGreaterThan(4000);
+      expect(longText.length).toBeGreaterThan(18000);
 
       let messageIdCounter = 1000;
       mockPost.mockImplementation((url: string) => {
-        if (url === '/imbot.message.add') {
+        if (url === '/imbot.v2.Chat.Message.send') {
           messageIdCounter++;
-          return Promise.resolve({ data: { result: messageIdCounter } });
+          return Promise.resolve({ data: { result: { id: messageIdCounter, uuidMap: {} } } });
         }
         return Promise.resolve({ data: { result: true } });
       });
 
       await channel.sendTextMessage(TEST_ACCOUNT_ID, DIALOG_ID, longText);
 
-      // Count message.add calls
+      // Count message send calls
       const messageCalls = mockPost.mock.calls.filter(
-        (call) => call[0] === '/imbot.message.add',
+        (call) => call[0] === '/imbot.v2.Chat.Message.send',
       );
 
       expect(messageCalls.length).toBeGreaterThan(1);
 
       // All chunks should have correct botId and dialogId
       for (const call of messageCalls) {
-        expect(call[1].CLIENT_ID).toBe(TEST_BOT_CLIENT_ID);
-        expect(call[1].BOT_ID).toBe(BOT_ID);
-        expect(call[1].DIALOG_ID).toBe(DIALOG_ID);
-        expect(call[1].MESSAGE).toBeTruthy();
+        expect(call[1].botToken).toBe(TEST_BOT_CLIENT_ID);
+        expect(call[1].botId).toBe(BOT_ID);
+        expect(call[1].dialogId).toBe(DIALOG_ID);
+        expect(call[1].fields.message).toBeTruthy();
       }
 
       // Typing indicator should still be sent exactly once
       const typingCalls = mockPost.mock.calls.filter(
-        (call) => call[0] === '/imbot.chat.sendTyping',
+        (call) => call[0] === '/imbot.v2.Chat.InputAction.notify',
       );
       expect(typingCalls).toHaveLength(1);
     });
@@ -444,9 +444,9 @@ describe('Bitrix24Channel integration', () => {
       await channel.sendTextMessage(TEST_ACCOUNT_ID, DIALOG_ID, markdownText);
 
       const messageCall = mockPost.mock.calls.find(
-        (call) => call[0] === '/imbot.message.add',
+        (call) => call[0] === '/imbot.v2.Chat.Message.send',
       );
-      const sentMessage = messageCall![1].MESSAGE;
+      const sentMessage = messageCall![1].fields.message;
 
       expect(sentMessage).toContain('[b]Header[/b]');
       expect(sentMessage).toContain('[b]bold[/b]');
@@ -478,17 +478,17 @@ describe('Bitrix24Channel integration', () => {
 
     it('should still send even if typing indicator fails', async () => {
       mockPost.mockImplementation((url: string) => {
-        if (url === '/imbot.chat.sendTyping') {
+        if (url === '/imbot.v2.Chat.InputAction.notify') {
           return Promise.reject(new Error('Typing API error'));
         }
-        return Promise.resolve({ data: { result: 1001 } });
+        return Promise.resolve({ data: { result: { id: 1001, uuidMap: {} } } });
       });
 
       // Should not throw
       await channel.sendTextMessage(TEST_ACCOUNT_ID, DIALOG_ID, 'test message');
 
       const messageCall = mockPost.mock.calls.find(
-        (call) => call[0] === '/imbot.message.add',
+        (call) => call[0] === '/imbot.v2.Chat.Message.send',
       );
       expect(messageCall).toBeDefined();
     });
