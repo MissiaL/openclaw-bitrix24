@@ -52,7 +52,9 @@ export function chatDialogId(chatId: number): string {
 }
 
 /**
- * Extract the numeric chat ID from DIALOG_ID (for use with im.disk.file.commit).
+ * Extract the numeric chat ID from DIALOG_ID. No longer needed for file
+ * sending (`imbot.v2.File.upload` takes `dialogId` directly, spec §11) —
+ * kept as a general dialog-ID utility for other chat-id resolution needs.
  * For user DMs, the chatId comes from the event's TO_CHAT_ID field, not from DIALOG_ID.
  */
 export function extractChatId(dialogId: string, toChatId?: number): number | null {

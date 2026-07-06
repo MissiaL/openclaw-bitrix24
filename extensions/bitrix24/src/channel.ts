@@ -90,11 +90,29 @@ export class Bitrix24Channel {
   }
 
   /**
-   * Download a file attachment from an incoming message.
+   * Download a file attachment from an incoming message via
+   * `imbot.v2.File.download` (see `FileAttachment` in types.ts — the id
+   * comes from the defensive, UNVERIFIABLE inbound-file parser in
+   * receive.ts; `fileName` is passed through when known so the returned
+   * `MediaAttachment.mimeType` can be guessed correctly).
    */
-  async downloadAttachment(accountId: string, fileId: string): Promise<MediaAttachment> {
+  async downloadAttachment(
+    accountId: string,
+    fileId: string | number,
+    fileName?: string,
+  ): Promise<MediaAttachment> {
+    const account = this.accountManager.getAccount(accountId);
+    if (!account?.botId || !account.bot.clientId) {
+      throw new Error(`Account "${accountId}" not configured, bot not registered, or bot CLIENT_ID missing`);
+    }
+
     const client = this.accountManager.getClient(accountId);
-    return downloadFile(client, fileId);
+    return downloadFile(client, {
+      botId: account.botId,
+      botToken: account.bot.clientId,
+      fileId,
+      fileName,
+    });
   }
 
   /**

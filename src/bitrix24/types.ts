@@ -114,11 +114,17 @@ export interface OutgoingMessage {
 
 // ── Files ────────────────────────────────────────────────────────────────────
 
+/**
+ * A file referenced by an inbound message. Only `id` is guaranteed —
+ * the inbound shape is UNVERIFIABLE (spec §11); `name`/`size` are populated
+ * on a best-effort basis by the defensive parser in receive.ts and are
+ * absent entirely for ids recovered only from a `[disk=N]`-style text token.
+ * Resolve the bytes later via `imbot.v2.File.download` (files.ts:downloadFile).
+ */
 export interface FileAttachment {
   id: string;
-  name: string;
-  size: number;
-  type: string;
+  name?: string;
+  size?: number;
   downloadUrl?: string;
 }
 
@@ -126,15 +132,6 @@ export interface MediaAttachment {
   buffer: Buffer;
   fileName: string;
   mimeType: string;
-}
-
-export interface DiskFile {
-  ID: string;
-  NAME: string;
-  SIZE: number;
-  DOWNLOAD_URL: string;
-  DETAIL_URL: string;
-  STORAGE_ID: string;
 }
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────
@@ -199,7 +196,8 @@ export interface Bitrix24V2EventMessage {
   /**
    * "Additional parameters: attach, keyboard, files, and others" per the
    * docs — no exact sub-schema for `params.files` is documented anywhere in
-   * the v2 API (spec §11, marked UNVERIFIABLE). Left untyped/unparsed here.
+   * the v2 API (spec §11, marked UNVERIFIABLE). Left untyped here; parsed
+   * defensively by `extractInboundFiles` in receive.ts.
    */
   params?: Record<string, unknown>;
   viewedByOthers?: string;

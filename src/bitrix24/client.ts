@@ -2,7 +2,6 @@ import axios, { AxiosInstance } from 'axios';
 import type {
   Bitrix24ClientConfig,
   BitrixApiResponse,
-  DiskFile,
   OAuthAuth,
 } from './types.js';
 import { refreshTokens, expiresAtFromResponse, isTokenExpired } from './oauth.js';
@@ -254,19 +253,6 @@ export class Bitrix24Client {
 
       return response.data.result;
     }
-  }
-
-  /**
-   * Upload a file to Bitrix24 Disk storage.
-   * Returns the created file record with DOWNLOAD_URL.
-   */
-  async uploadFile(storageId: number, fileName: string, fileContent: Buffer): Promise<DiskFile> {
-    const base64 = fileContent.toString('base64');
-    return this.callMethod<DiskFile>('disk.storage.uploadfile', {
-      id: storageId,
-      data: { NAME: fileName },
-      fileContent: [fileName, base64],
-    });
   }
 
   /**

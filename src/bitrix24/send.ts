@@ -2,7 +2,6 @@ import type { Bitrix24Client } from './client.js';
 import type { OutgoingMessage } from './types.js';
 import { markdownToBBCode, chunkText } from './format.js';
 import { sendFile } from './files.js';
-import { extractChatId } from './targets.js';
 
 // imbot.v2.Chat.Message.send's `fields.message` has a documented hard cap of
 // 20,000 chars (spec §4); text beyond that is silently truncated with a
@@ -19,12 +18,12 @@ const DEFAULT_CHUNK_LIMIT = 18000;
  *   2. Convert markdown → BB-code
  *   3. Chunk if > textChunkLimit
  *   4. Send each chunk via imbot.v2.Chat.Message.send
- *   5. Send media files via disk upload + commit
+ *   5. Send media files via imbot.v2.File.upload (single-call upload+attach+send)
  */
 export async function sendMessage(
   client: Bitrix24Client,
   msg: OutgoingMessage,
-  opts?: { textChunkLimit?: number; toChatId?: number },
+  opts?: { textChunkLimit?: number },
 ): Promise<{ messageIds: string[] }> {
   const chunkLimit = opts?.textChunkLimit ?? DEFAULT_CHUNK_LIMIT;
   const messageIds: string[] = [];
@@ -52,16 +51,14 @@ export async function sendMessage(
 
   // 4. Send media files
   if (msg.media && msg.media.length > 0) {
-    const chatId = extractChatId(msg.dialogId, opts?.toChatId);
-    if (chatId) {
-      for (const media of msg.media) {
-        await sendFile(client, {
-          chatId,
-          fileName: media.fileName,
-          fileBuffer: media.buffer,
-          mimeType: media.mimeType,
-        });
-      }
+    for (const media of msg.media) {
+      await sendFile(client, {
+        botId: msg.botId,
+        botToken: msg.botClientId,
+        dialogId: msg.dialogId,
+        fileName: media.fileName,
+        fileBuffer: media.buffer,
+      });
     }
   }
 

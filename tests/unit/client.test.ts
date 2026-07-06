@@ -303,41 +303,6 @@ describe('Bitrix24Client.updateTokens', () => {
   });
 });
 
-// ── Bitrix24Client.uploadFile ────────────────────────────────────────────────
-
-describe('Bitrix24Client.uploadFile', () => {
-  it('calls disk.storage.uploadfile with base64-encoded content', async () => {
-    const fakeDiskFile = {
-      ID: '100',
-      NAME: 'test.txt',
-      SIZE: 11,
-      DOWNLOAD_URL: 'https://test.bitrix24.ru/disk/download/100',
-      DETAIL_URL: 'https://test.bitrix24.ru/disk/file/100',
-      STORAGE_ID: '5',
-    };
-
-    mockPost.mockResolvedValueOnce({
-      data: { result: fakeDiskFile },
-    });
-
-    const client = new Bitrix24Client({
-      domain: 'test.bitrix24.ru',
-      auth: { type: 'webhook', webhookUrl: 'https://test.bitrix24.ru/rest/1/abc/' },
-    });
-
-    const content = Buffer.from('hello world');
-    const result = await client.uploadFile(5, 'test.txt', content);
-
-    expect(mockPost).toHaveBeenCalledWith('/disk.storage.uploadfile', {
-      id: 5,
-      data: { NAME: 'test.txt' },
-      fileContent: ['test.txt', content.toString('base64')],
-    });
-    expect(result).toEqual(fakeDiskFile);
-    client.destroy();
-  });
-});
-
 // ── OAuth auto-refresh (proactive) ──────────────────────────────────────────
 
 describe('Bitrix24Client OAuth proactive refresh', () => {

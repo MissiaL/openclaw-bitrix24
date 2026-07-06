@@ -5,6 +5,7 @@ import type {
   Bitrix24V2EventChat,
   IncomingMessage,
   ChatType,
+  FileAttachment,
 } from './types.js';
 import { bbCodeToMarkdown } from './format.js';
 
@@ -30,6 +31,86 @@ function mapChatType(chat: Bitrix24V2EventChat): ChatType {
   if (!isGroupDialog) return 'P';
   if (chat.type === 'open' || chat.type === 'openChannel') return 'O';
   return 'C';
+}
+
+// BBCode tokens that MAY reference an attached Drive file inside
+// `message.text` — see `extractInboundFiles` below for why both are scanned.
+const DISK_TOKEN_PATTERNS = [
+  /\[disk=(\d+)\]/gi,
+  /\[disk\s+file\s+id\s*=\s*(\d+)\]/gi,
+];
+
+/**
+ * Defensively extract inbound file attachments from a v2 message event.
+ *
+ * TODO(live-verify): inbound file shape is undocumented (spec §11) — confirm
+ * against a real portal. The v2 docs state only that `message.params` may
+ * carry "attach, keyboard, files, and others" (entities.md), with no worked
+ * example of a file-bearing `ONIMBOTV2MESSAGEADD` event anywhere in the
+ * chat-bots-v2 doc tree. Handles ALL plausible shapes rather than guessing
+ * one:
+ *   - `params.files` as an ARRAY: `[{id, name, size}, ...]`
+ *   - `params.files` as an OBJECT MAP: `{someKey: {id, name, size}, ...}`
+ *   - `[disk=<N>]` BBCode tokens in `message.text` — the documented
+ *     *outbound* Drive-file-link tag (message-formatting.md); docs never
+ *     confirm whether inbound user-sent files also surface this way
+ *   - the legacy `[DISK FILE ID=<N>]` token form, case-insensitive
+ * Entries are de-duplicated by id — a file referenced both structurally
+ * (`params.files`) and via a text token yields a single attachment.
+ */
+function extractInboundFiles(
+  params: Record<string, unknown> | undefined,
+  text: string,
+): FileAttachment[] {
+  const byId = new Map<string, FileAttachment>();
+
+  const addFile = (id: string, name?: string, size?: number): void => {
+    if (!id || byId.has(id)) return;
+    const attachment: FileAttachment = { id };
+    if (name !== undefined) attachment.name = name;
+    if (size !== undefined) attachment.size = size;
+    byId.set(id, attachment);
+  };
+
+  const addFromRaw = (raw: unknown): void => {
+    if (!raw || typeof raw !== 'object') return;
+    const obj = raw as Record<string, unknown>;
+    const rawId = obj.id ?? obj.ID ?? obj.fileId;
+    if (rawId === undefined || rawId === null || rawId === '') return;
+
+    const name =
+      typeof obj.name === 'string' ? obj.name
+      : typeof obj.NAME === 'string' ? obj.NAME
+      : undefined;
+
+    const rawSize = obj.size ?? obj.SIZE;
+    let size: number | undefined;
+    if (typeof rawSize === 'number') {
+      size = rawSize;
+    } else if (typeof rawSize === 'string' && rawSize !== '') {
+      const n = Number(rawSize);
+      if (!Number.isNaN(n)) size = n;
+    }
+
+    addFile(String(rawId), name, size);
+  };
+
+  const filesParam = params?.files;
+  if (Array.isArray(filesParam)) {
+    filesParam.forEach(addFromRaw);
+  } else if (filesParam && typeof filesParam === 'object') {
+    Object.values(filesParam as Record<string, unknown>).forEach(addFromRaw);
+  }
+
+  for (const pattern of DISK_TOKEN_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      addFile(match[1]);
+    }
+  }
+
+  return Array.from(byId.values());
 }
 
 /**
@@ -61,9 +142,7 @@ export function parseMessageEvent(body: Bitrix24MessageEvent): IncomingMessage |
     fromUserLastName: user?.lastName ?? '',
     isBot: false,
     chatType: mapChatType(chat),
-    // v2 Message.params.files has no documented sub-schema (spec §11,
-    // UNVERIFIABLE) — not parsed here rather than guessed at.
-    files: [],
+    files: extractInboundFiles(message.params, message.text),
     domain: auth?.domain ?? '',
     applicationToken: auth?.application_token,
     botId: toNumber(bot.id),
