@@ -140,33 +140,35 @@ describe('Bitrix24Channel integration', () => {
   // ── 2. startupAccount ────────────────────────────────────────────────────
 
   describe('startupAccount', () => {
-    it('should call imbot.register and store botId/botCode', async () => {
+    it('should call imbot.v2.Bot.register and store botId/botCode', async () => {
       const BOT_ID = 42;
-      mockApiResponse('imbot.register', BOT_ID);
+      const BOT_CODE = `openclaw_${TEST_ACCOUNT_ID}`;
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: BOT_CODE } });
 
       await channel.startupAccount(TEST_ACCOUNT_ID);
 
-      // Verify imbot.register was called
+      // Verify imbot.v2.Bot.register was called
       const registerCall = mockPost.mock.calls.find(
-        (call) => call[0] === '/imbot.register',
+        (call) => call[0] === '/imbot.v2.Bot.register',
       );
       expect(registerCall).toBeDefined();
 
       const payload = registerCall![1];
-      expect(payload.CODE).toBe(`openclaw_${TEST_ACCOUNT_ID}`);
-      expect(payload.CLIENT_ID).toBe(TEST_BOT_CLIENT_ID);
-      expect(payload.TYPE).toBe('B');
-      expect(payload.PROPERTIES.NAME).toBe('Test Bot');
-      expect(payload.PROPERTIES.COLOR).toBe('PURPLE');
-      expect(payload.PROPERTIES.WORK_POSITION).toBe('Test Assistant');
-      expect(payload.EVENT_MESSAGE_ADD).toBe(
-        `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}/message`,
+      expect(payload.fields.code).toBe(BOT_CODE);
+      expect(payload.fields.botToken).toBe(TEST_BOT_CLIENT_ID);
+      expect(payload.fields.eventMode).toBe('webhook');
+      expect(payload.fields.type).toBe('bot');
+      expect(payload.fields.properties.name).toBe('Test Bot');
+      expect(payload.fields.properties.color).toBe('PURPLE');
+      expect(payload.fields.properties.workPosition).toBe('Test Assistant');
+      expect(payload.fields.webhookUrl).toBe(
+        `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}`,
       );
 
       // Verify botId was stored
       const account = channel.resolveAccount(TEST_ACCOUNT_ID);
       expect(account!.botId).toBe(BOT_ID);
-      expect(account!.botCode).toBe(`openclaw_${TEST_ACCOUNT_ID}`);
+      expect(account!.botCode).toBe(BOT_CODE);
 
       // Verify logger was called
       expect(runtime.logger.info).toHaveBeenCalledWith(
@@ -179,7 +181,7 @@ describe('Bitrix24Channel integration', () => {
 
     it('should skip registration if botId is already set', async () => {
       // First registration
-      mockApiResponse('imbot.register', 42);
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: 42, code: `openclaw_${TEST_ACCOUNT_ID}` } });
       await channel.startupAccount(TEST_ACCOUNT_ID);
 
       vi.clearAllMocks();
@@ -203,7 +205,7 @@ describe('Bitrix24Channel integration', () => {
   describe('startupAccount webhook base tracking', () => {
     const BOT_ID = 42;
 
-    it('calls imbot.update when the public URL changed since registration', async () => {
+    it('calls imbot.v2.Bot.update when the public URL changed since registration', async () => {
       runtime.webhookBaseUrl = 'https://new.example';
 
       const trackingChannel = new Bitrix24Channel();
@@ -221,19 +223,17 @@ describe('Bitrix24Channel integration', () => {
         ],
       });
 
-      mockApiResponse('imbot.update', true);
+      mockApiResponse('imbot.v2.Bot.update', { bot: { id: BOT_ID } });
 
       await trackingChannel.startupAccount(TEST_ACCOUNT_ID);
 
-      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.update');
+      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.v2.Bot.update');
       expect(updateCall).toBeDefined();
       expect(updateCall![1]).toEqual({
-        CLIENT_ID: TEST_BOT_CLIENT_ID,
-        BOT_ID,
-        FIELDS: {
-          EVENT_MESSAGE_ADD: `https://new.example/webhook/bitrix24/${TEST_ACCOUNT_ID}/message`,
-          EVENT_WELCOME_MESSAGE: `https://new.example/webhook/bitrix24/${TEST_ACCOUNT_ID}/welcome`,
-          EVENT_BOT_DELETE: `https://new.example/webhook/bitrix24/${TEST_ACCOUNT_ID}/delete`,
+        botId: BOT_ID,
+        botToken: TEST_BOT_CLIENT_ID,
+        fields: {
+          webhookUrl: `https://new.example/webhook/bitrix24/${TEST_ACCOUNT_ID}`,
         },
       });
 
@@ -248,7 +248,7 @@ describe('Bitrix24Channel integration', () => {
       trackingChannel.destroy();
     });
 
-    it('does not call imbot.update when the base is unchanged', async () => {
+    it('does not call imbot.v2.Bot.update when the base is unchanged', async () => {
       runtime.webhookBaseUrl = 'https://same.example';
 
       const trackingChannel = new Bitrix24Channel();
@@ -268,7 +268,7 @@ describe('Bitrix24Channel integration', () => {
 
       await trackingChannel.startupAccount(TEST_ACCOUNT_ID);
 
-      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.update');
+      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.v2.Bot.update');
       expect(updateCall).toBeUndefined();
       expect(runtime.mutateConfigFile).not.toHaveBeenCalled();
       expect(runtime.logger.info).toHaveBeenCalledWith(
@@ -279,7 +279,7 @@ describe('Bitrix24Channel integration', () => {
     });
 
     it('persists the base after fresh registration', async () => {
-      mockApiResponse('imbot.register', BOT_ID);
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: `openclaw_${TEST_ACCOUNT_ID}` } });
 
       await channel.startupAccount(TEST_ACCOUNT_ID);
 
@@ -292,7 +292,7 @@ describe('Bitrix24Channel integration', () => {
       expect(writtenBase).toBe(TEST_WEBHOOK_BASE_URL);
     });
 
-    it('calls imbot.update on first startup after upgrade (botId present, no stored registeredWebhookBase)', async () => {
+    it('calls imbot.v2.Bot.update on first startup after upgrade (botId present, no stored registeredWebhookBase)', async () => {
       // Simulates every existing install on first startup after upgrading to a version
       // that tracks registeredWebhookBase: botId is already set from a prior registration,
       // but the config predates the tracking key entirely (not even an empty map).
@@ -310,19 +310,17 @@ describe('Bitrix24Channel integration', () => {
         ],
       });
 
-      mockApiResponse('imbot.update', true);
+      mockApiResponse('imbot.v2.Bot.update', { bot: { id: BOT_ID } });
 
       await trackingChannel.startupAccount(TEST_ACCOUNT_ID);
 
-      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.update');
+      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.v2.Bot.update');
       expect(updateCall).toBeDefined();
       expect(updateCall![1]).toEqual({
-        CLIENT_ID: TEST_BOT_CLIENT_ID,
-        BOT_ID,
-        FIELDS: {
-          EVENT_MESSAGE_ADD: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}/message`,
-          EVENT_WELCOME_MESSAGE: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}/welcome`,
-          EVENT_BOT_DELETE: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}/delete`,
+        botId: BOT_ID,
+        botToken: TEST_BOT_CLIENT_ID,
+        fields: {
+          webhookUrl: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}`,
         },
       });
 
@@ -346,7 +344,7 @@ describe('Bitrix24Channel integration', () => {
 
     beforeEach(async () => {
       // Register bot first
-      mockApiResponse('imbot.register', BOT_ID);
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: `openclaw_${TEST_ACCOUNT_ID}` } });
       await channel.startupAccount(TEST_ACCOUNT_ID);
       vi.clearAllMocks();
 
@@ -639,22 +637,22 @@ describe('Bitrix24Channel integration', () => {
 
     beforeEach(async () => {
       // Register bot first
-      mockApiResponse('imbot.register', BOT_ID);
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: `openclaw_${TEST_ACCOUNT_ID}` } });
       await channel.startupAccount(TEST_ACCOUNT_ID);
       vi.clearAllMocks();
     });
 
-    it('should call imbot.unregister with the bot ID', async () => {
-      mockApiResponse('imbot.unregister', true);
+    it('should call imbot.v2.Bot.unregister with the bot ID', async () => {
+      mockApiResponse('imbot.v2.Bot.unregister', { result: true });
 
       await channel.logoutAccount(TEST_ACCOUNT_ID);
 
       const unregisterCall = mockPost.mock.calls.find(
-        (call) => call[0] === '/imbot.unregister',
+        (call) => call[0] === '/imbot.v2.Bot.unregister',
       );
       expect(unregisterCall).toBeDefined();
-      expect(unregisterCall![1].CLIENT_ID).toBe(TEST_BOT_CLIENT_ID);
-      expect(unregisterCall![1].BOT_ID).toBe(BOT_ID);
+      expect(unregisterCall![1].botToken).toBe(TEST_BOT_CLIENT_ID);
+      expect(unregisterCall![1].botId).toBe(BOT_ID);
 
       expect(runtime.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('unregistered'),

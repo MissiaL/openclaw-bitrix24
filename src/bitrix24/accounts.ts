@@ -3,6 +3,14 @@ import type { AccountConfig, BitrixAuth, BotConfig } from './types.js';
 import { Bitrix24Client } from './client.js';
 import { resolveAuth, extractDomain } from './token.js';
 
+/**
+ * Derive the bot's secret token (config field `bot.clientId`).
+ *
+ * This value is passed as `botToken` to every `imbot.v2.Bot.*` call (see
+ * bot.ts). It used to be Bitrix24 v1's `CLIENT_ID`; the config field name is
+ * kept unchanged for backward compatibility. md5 produces 32 hex chars,
+ * comfortably within v2's 40-char `botToken` limit.
+ */
 function deriveBotClientId(auth: BitrixAuth, explicitClientId?: string): string | undefined {
   const provided = explicitClientId?.trim();
   if (provided) return provided;

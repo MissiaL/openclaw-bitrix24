@@ -128,10 +128,10 @@ export class Bitrix24Channel {
       const registered = this.accountManager.getRegisteredWebhookBase(accountId)?.replace(/\/$/, '');
       if (registered !== base) {
         if (!account.bot.clientId) {
-          runtime.logger.warn(`Bitrix24 public URL changed for "${accountId}" but bot CLIENT_ID is missing; event URLs not updated`);
+          runtime.logger.warn(`Bitrix24 public URL changed for "${accountId}" but bot CLIENT_ID is missing; webhook URL not updated`);
           return;
         }
-        runtime.logger.info(`Bitrix24 public URL changed for "${accountId}" (${registered ?? 'unknown'} -> ${base}); updating bot event URLs...`);
+        runtime.logger.info(`Bitrix24 public URL changed for "${accountId}" (${registered ?? 'unknown'} -> ${base}); updating bot webhook URL...`);
         await updateBotEventUrls(client, {
           botId: account.botId,
           botClientId: account.bot.clientId,

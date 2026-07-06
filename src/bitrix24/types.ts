@@ -42,7 +42,13 @@ export interface BotConfig {
   workPosition?: string;
   avatar?: string; // base64
   email?: string;
-  /** Secret CLIENT_ID reused across all imbot.* calls for this bot. */
+  /**
+   * Secret token reused across all bot lifecycle calls for this bot.
+   * Historically Bitrix24 v1's `CLIENT_ID`; since the imbot.v2 migration this
+   * same value (an md5 hash, 32 hex chars — see `deriveBotClientId` in
+   * accounts.ts) is sent as v2's `botToken` param (max 40 chars). The config
+   * field name (`bot.clientId`) is kept for backward compatibility.
+   */
   clientId?: string;
 }
 
