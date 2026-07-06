@@ -200,7 +200,7 @@ export class Bitrix24Client {
    * Call any Bitrix24 REST API method.
    * Automatically refreshes OAuth tokens if expired (proactive + reactive).
    * Retries with exponential backoff on Bitrix24 rate-limit errors
-   * (QUERY_LIMIT_EXCEEDED / OVERLOAD_LIMIT / OPERATION_TIME_LIMIT / HTTP 503),
+   * (QUERY_LIMIT_EXCEEDED / OVERLOAD_LIMIT / OPERATION_TIME_LIMIT / HTTP 503 / HTTP 429),
    * independent of the OAuth token-refresh retry above.
    */
   async callMethod<T = any>(method: string, params: Record<string, any> = {}): Promise<T> {
@@ -369,13 +369,15 @@ function isAxiosAuthError(err: unknown): boolean {
 }
 
 /**
- * Check if an axios error is an HTTP 503, which Bitrix24 may return
- * on rate-limit exhaustion instead of a `data.error` payload.
+ * Check if an axios error is an HTTP 503 or 429, which Bitrix24 may return
+ * on rate-limit exhaustion instead of a `data.error` payload. The docs
+ * disagree on which status to expect (system-errors.html says 503 +
+ * QUERY_LIMIT_EXCEEDED; the imbot.v2 limits table says 429) — handle both.
  */
 function isRateLimitHttpError(err: unknown): boolean {
   if (err && typeof err === 'object' && 'response' in err) {
     const resp = (err as any).response;
-    return resp?.status === 503;
+    return resp?.status === 503 || resp?.status === 429;
   }
   return false;
 }

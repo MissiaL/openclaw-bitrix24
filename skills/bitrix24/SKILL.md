@@ -126,10 +126,11 @@ On error, response contains `error` and `error_description` fields. Common error
 - `ACCESS_DENIED` — insufficient permissions for this method
 - `NOT_FOUND` — entity with given ID doesn't exist
 
-### `imbot.*` Security Rule
+### `imbot.v2.*` Security Rule
 
-When working with `imbot.*` methods, always persist and reuse the same secret `CLIENT_ID`.
+This plugin uses the Bitrix24 **imbot.v2** (Chatbots 2.0) API. When working with `imbot.v2.*` methods, always persist and reuse the same secret `botToken`.
 
-- `imbot.register` must include `CLIENT_ID`
-- every later `imbot.*` call must pass the same `CLIENT_ID`
-- do not treat `CLIENT_ID` as a public bot identifier
+- `imbot.v2.Bot.register` must include `fields.botToken` (max 40 chars)
+- every later `imbot.v2.*` call must pass the same `botToken`
+- do not treat `botToken` as a public bot identifier
+- verify inbound events with the top-level `auth.application_token`, never `data.bot.auth.application_token`

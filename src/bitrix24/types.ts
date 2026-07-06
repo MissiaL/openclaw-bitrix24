@@ -41,7 +41,6 @@ export interface BotConfig {
   color?: BotColor;
   workPosition?: string;
   avatar?: string; // base64
-  email?: string;
   /**
    * Secret token reused across all bot lifecycle calls for this bot.
    * Historically Bitrix24 v1's `CLIENT_ID`; since the imbot.v2 migration this
@@ -69,7 +68,7 @@ export interface AccountConfig {
   domain: string;
   auth: BitrixAuth;
   enabled: boolean;
-  textChunkLimit: number; // default 4000
+  textChunkLimit: number; // default 18000
   bot: BotConfig;
   botId?: number;
   botCode?: string;

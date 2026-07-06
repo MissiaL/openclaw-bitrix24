@@ -16,7 +16,7 @@ function deriveBotClientId(auth: BitrixAuth, explicitClientId?: string): string 
   if (provided) return provided;
   if (auth.type !== 'webhook') return undefined;
 
-  // Use a stable secret-derived CLIENT_ID for webhook-backed bot integrations.
+  // Stable secret-derived botToken (v2 fields.botToken, <=40 chars) for webhook-backed bots.
   return createHash('md5').update(auth.webhookUrl.replace(/\/$/, '')).digest('hex');
 }
 
@@ -66,7 +66,7 @@ export class AccountManager {
         domain,
         auth,
         enabled: raw.enabled !== false,
-        textChunkLimit: raw.textChunkLimit ?? 4000,
+        textChunkLimit: raw.textChunkLimit ?? 18000,
         bot: {
           name: raw.bot?.name ?? 'OpenClaw Agent',
           lastName: raw.bot?.lastName,
@@ -97,7 +97,7 @@ export class AccountManager {
           domain: extractDomain(auth),
           auth,
           enabled: true,
-          textChunkLimit: 4000,
+          textChunkLimit: 18000,
           bot: {
             name: 'OpenClaw Agent',
             color: 'PURPLE',

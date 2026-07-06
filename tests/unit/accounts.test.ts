@@ -63,7 +63,7 @@ describe('AccountManager.loadFromConfig', () => {
     expect(p1!.domain).toBe('portal1.bitrix24.ru');
     expect(p1!.auth).toEqual({ type: 'webhook', webhookUrl: 'https://portal1.bitrix24.ru/rest/1/secret1/' });
     expect(p1!.enabled).toBe(true);
-    expect(p1!.textChunkLimit).toBe(4000);
+    expect(p1!.textChunkLimit).toBe(18000);
     expect(p1!.bot.name).toBe('OpenClaw Agent');
     expect(p1!.bot.clientId).toBe(md5('https://portal1.bitrix24.ru/rest/1/secret1/'));
     expect(p1!.dmPolicy).toBe('open');

@@ -471,7 +471,7 @@ describe('Bitrix24Channel integration', () => {
 
       await expect(
         freshChannel.sendTextMessage('no-bot', DIALOG_ID, 'test'),
-      ).rejects.toThrow('not configured, bot not registered, or bot CLIENT_ID missing');
+      ).rejects.toThrow('not configured, bot not registered, or bot token missing');
 
       freshChannel.destroy();
     });

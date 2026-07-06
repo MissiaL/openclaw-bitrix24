@@ -60,7 +60,7 @@ export class Bitrix24Channel {
   ): Promise<void> {
     const account = this.accountManager.getAccount(accountId);
     if (!account || !account.botId || !account.bot.clientId) {
-      throw new Error(`Account "${accountId}" not configured, bot not registered, or bot CLIENT_ID missing`);
+      throw new Error(`Account "${accountId}" not configured, bot not registered, or bot token missing`);
     }
 
     const client = this.accountManager.getClient(accountId);
@@ -103,7 +103,7 @@ export class Bitrix24Channel {
   ): Promise<MediaAttachment> {
     const account = this.accountManager.getAccount(accountId);
     if (!account?.botId || !account.bot.clientId) {
-      throw new Error(`Account "${accountId}" not configured, bot not registered, or bot CLIENT_ID missing`);
+      throw new Error(`Account "${accountId}" not configured, bot not registered, or bot token missing`);
     }
 
     const client = this.accountManager.getClient(accountId);
@@ -146,7 +146,7 @@ export class Bitrix24Channel {
       const registered = this.accountManager.getRegisteredWebhookBase(accountId)?.replace(/\/$/, '');
       if (registered !== base) {
         if (!account.bot.clientId) {
-          runtime.logger.warn(`Bitrix24 public URL changed for "${accountId}" but bot CLIENT_ID is missing; webhook URL not updated`);
+          runtime.logger.warn(`Bitrix24 public URL changed for "${accountId}" but bot token is missing; webhook URL not updated`);
           return;
         }
         runtime.logger.info(`Bitrix24 public URL changed for "${accountId}" (${registered ?? 'unknown'} -> ${base}); updating bot webhook URL...`);
@@ -172,7 +172,7 @@ export class Bitrix24Channel {
     // Register bot
     runtime.logger.info(`Registering Bitrix24 bot for "${accountId}" on ${account.domain}...`);
     if (!account.bot.clientId) {
-      throw new Error(`Account "${accountId}" bot CLIENT_ID is not configured`);
+      throw new Error(`Account "${accountId}" bot token is not configured`);
     }
     const { botId, botCode } = await registerBot(
       client,
@@ -200,7 +200,7 @@ export class Bitrix24Channel {
     const account = this.accountManager.getAccount(accountId);
     if (!account?.botId) return;
     if (!account.bot.clientId) {
-      runtime.logger.warn(`Cannot unregister Bitrix24 bot for "${accountId}": bot CLIENT_ID is missing`);
+      runtime.logger.warn(`Cannot unregister Bitrix24 bot for "${accountId}": bot token is missing`);
       return;
     }
 

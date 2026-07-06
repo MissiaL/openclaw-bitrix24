@@ -1,16 +1,16 @@
 # Messaging & Notifications
 
-## `imbot.*` Security Rule
+## `imbot.v2.*` Security Rule
 
-For bot flows that use `imbot.*`:
+This plugin uses the Bitrix24 **imbot.v2** (Chatbots 2.0) API. For bot flows that use `imbot.v2.*`:
 
-- pass `CLIENT_ID` when registering the bot
-- store that exact `CLIENT_ID`
-- pass the same `CLIENT_ID` in every later `imbot.*` call
+- pass `fields.botToken` when registering the bot (`imbot.v2.Bot.register`, max 40 chars)
+- store that exact `botToken`
+- pass the same `botToken` in every later `imbot.v2.*` call
 
-`CLIENT_ID` is a secret control value. It should not be guessable or public.
+`botToken` is a secret control value. It should not be guessable or public. This integration derives a stable `botToken` from `md5(webhook)`.
 
-In the historical Claw integration, a stable `CLIENT_ID` derived from `md5(webhook)` was used.
+Verify inbound events with the top-level `auth.application_token`, never `data.bot.auth.application_token`.
 
 ## Send Messages
 

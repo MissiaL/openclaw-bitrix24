@@ -196,6 +196,18 @@ describe('Bitrix24Client rate-limit retry', () => {
     client.destroy();
   });
 
+  it('retries once on HTTP 429 and resolves on success', async () => {
+    mockPost
+      .mockRejectedValueOnce({ response: { status: 429 } })
+      .mockResolvedValueOnce({ data: { result: 'ok' } });
+
+    const client = makeRetryClient();
+
+    await expect(client.callMethod('crm.deal.get', { id: 1 })).resolves.toBe('ok');
+    expect(mockPost).toHaveBeenCalledTimes(2);
+    client.destroy();
+  });
+
   it('does not retry a non-rate-limit error', async () => {
     mockPost.mockResolvedValueOnce({
       data: { error: 'ACCESS_DENIED', error_description: 'Insufficient permissions' },
