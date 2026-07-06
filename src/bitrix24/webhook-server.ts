@@ -101,10 +101,8 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
       // parsing later fails, returns null, or a field turns out to be named
       // differently than expected.
       handlers.logger?.info(
-        '[bitrix24-webhook] raw event=%s account=%s body=%s',
-        body?.event,
-        accountId,
-        JSON.stringify(body).slice(0, 2000),
+        `[bitrix24-webhook] raw event=${body?.event} account=${accountId} ` +
+          `body=${JSON.stringify(body).slice(0, 2000)}`,
       );
 
       if (handlers.hasAccount && !handlers.hasAccount(accountId)) {

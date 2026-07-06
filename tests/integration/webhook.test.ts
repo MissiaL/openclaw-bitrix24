@@ -622,11 +622,12 @@ describe('createWebhookApp', () => {
 
       expect(res.status).toBe(200);
       expect(logger.info).toHaveBeenCalledOnce();
-      const [fmt, loggedEvent, loggedAccountId, loggedBody] = logger.info.mock.calls[0];
-      expect(fmt).toContain('raw event=');
-      expect(loggedEvent).toBe('ONIMBOTV2MESSAGEADD');
-      expect(loggedAccountId).toBe(ACCOUNT_ID);
-      expect(loggedBody).toContain('Ping!');
+      // The openclaw logger does not do printf %s substitution, so the whole
+      // line is a single pre-interpolated string.
+      const [line] = logger.info.mock.calls[0];
+      expect(line).toContain('raw event=ONIMBOTV2MESSAGEADD');
+      expect(line).toContain(`account=${ACCOUNT_ID}`);
+      expect(line).toContain('Ping!');
     } finally {
       await stopServer(server);
     }

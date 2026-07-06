@@ -16,21 +16,20 @@ import type { Bitrix24Channel } from './channel.js';
  * compare intended vs. actual shapes from production logs and adjust this
  * file. Never let a shape mismatch here crash the webhook — everything is
  * wrapped in try/catch.
+ *
+ * NOTE: the openclaw logger does NOT do printf-style `%s` substitution — it
+ * prints the format string literally. All diagnostics here use template
+ * literals so the real values show up in production logs.
  */
 export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
   channel.onMessage(async (accountId: string, msg: IncomingMessage) => {
     try {
       // Entry log: full shape of what the webhook parser handed us, so a
-      // human can see the real field values live (esp. `fromUserId`, which
-      // the IRC-derived brief calls `senderId` — this codebase's
-      // `IncomingMessage` names it `fromUserId`; kept here as the actual
-      // field, logged under a matching label for cross-reference).
+      // human can see the real field values live.
       api.logger.info(
-        '[bitrix24] inbound message acct=%s dialog=%s from=%s len=%d',
-        accountId,
-        msg.dialogId,
-        msg.fromUserId,
-        msg.text?.length ?? 0,
+        `[bitrix24] inbound message acct=${accountId} dialog=${msg.dialogId} ` +
+          `from=${msg.fromUserId} chatType=${msg.chatType} len=${msg.text?.length ?? 0} ` +
+          `text=${JSON.stringify((msg.text ?? '').slice(0, 200))}`,
       );
 
       const rc = api.runtime?.channel;
@@ -56,8 +55,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       const agentId = undefined;
       const storePath = undefined;
       api.logger.info(
-        '[bitrix24] LIVE-TUNE: agentId/storePath left undefined (sessionKey=%s) — host expected to resolve defaults',
-        sessionKey,
+        `[bitrix24] LIVE-TUNE: agentId/storePath left undefined (sessionKey=${sessionKey}) — host expected to resolve defaults`,
       );
 
       const senderName =
@@ -113,32 +111,32 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           // production so this can be tightened tomorrow.
           deliver: async (payload: any) => {
             try {
+              const keys =
+                payload && typeof payload === 'object' ? Object.keys(payload) : payload;
               api.logger.info(
-                '[bitrix24] LIVE-TUNE delivery payload keys=%s',
-                JSON.stringify(payload && typeof payload === 'object' ? Object.keys(payload) : payload),
+                `[bitrix24] LIVE-TUNE delivery payload keys=${JSON.stringify(keys)} ` +
+                  `sample=${JSON.stringify(payload).slice(0, 400)}`,
               );
               const text = payload?.text ?? payload?.body ?? '';
               if (!text) {
                 api.logger.warn(
-                  '[bitrix24] delivery payload had no text/body to send (dialog=%s)',
-                  msg.dialogId,
+                  `[bitrix24] delivery payload had no text/body to send (dialog=${msg.dialogId})`,
                 );
                 return;
               }
               await channel.sendTextMessage(accountId, msg.dialogId, text);
+              api.logger.info(
+                `[bitrix24] reply delivered to dialog=${msg.dialogId} (${String(text).length} chars)`,
+              );
             } catch (err) {
               api.logger.error(
-                '[bitrix24] delivery to dialog=%s failed: %s',
-                msg.dialogId,
-                err,
+                `[bitrix24] delivery to dialog=${msg.dialogId} failed: ${String(err)}`,
               );
             }
           },
           onError: (err: unknown, info: unknown) => {
             api.logger.error(
-              '[bitrix24] dispatchReply delivery error info=%s err=%s',
-              JSON.stringify(info),
-              err,
+              `[bitrix24] dispatchReply delivery error info=${JSON.stringify(info)} err=${String(err)}`,
             );
           },
         },
@@ -146,7 +144,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
         replyOptions: {},
         record: {
           onRecordError: (err: unknown) => {
-            api.logger.warn('[bitrix24] failed recording inbound session: %s', err);
+            api.logger.warn(`[bitrix24] failed recording inbound session: ${String(err)}`);
           },
         },
       };
@@ -154,16 +152,16 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       // Log the full dispatch args (functions elided) before dispatch — the
       // key diagnostic for tomorrow's live tuning.
       api.logger.info(
-        '[bitrix24] LIVE-TUNE dispatchReply args=%s',
-        JSON.stringify(
+        `[bitrix24] LIVE-TUNE dispatchReply args=${JSON.stringify(
           dispatchArgs,
           (_key, value) => (typeof value === 'function' ? '[fn]' : value),
-        ).slice(0, 4000),
+        ).slice(0, 4000)}`,
       );
 
       await rc.inbound.dispatchReply(dispatchArgs);
+      api.logger.info(`[bitrix24] dispatchReply returned for dialog=${msg.dialogId}`);
     } catch (err) {
-      api.logger.error('[bitrix24] inbound dispatch failed: %s', err);
+      api.logger.error(`[bitrix24] inbound dispatch failed: ${String(err)}`);
     }
   });
 }
