@@ -13,6 +13,10 @@
   "configSchema": {
     "type": "object",
     "properties": {
+      "publicUrl": {
+        "type": "string",
+        "description": "Externally reachable base URL of this gateway, used for Bitrix24 event handlers (e.g., https://bot.example.com). Falls back to BITRIX24_PUBLIC_URL env var."
+      },
       "webhookUrl": {
         "type": "string",
         "description": "Bitrix24 inbound webhook URL (e.g., https://your-portal.bitrix24.ru/rest/1/abc123/)",
@@ -62,11 +66,88 @@
     }
   },
   "uiHints": {
+    "publicUrl": {
+      "label": "Public gateway URL",
+      "placeholder": "https://bot.example.com"
+    },
     "webhookUrl": {
       "label": "Bitrix24 Webhook URL",
       "placeholder": "https://your-portal.bitrix24.ru/rest/1/your-secret/",
       "sensitive": true,
       "helpText": "Create at: Portal > Developer resources > Other > Inbound webhook. Enable scopes: imbot, im, disk."
+    }
+  },
+  "channelConfigs": {
+    "bitrix24": {
+      "label": "Bitrix24",
+      "description": "Chat with your OpenClaw agent through Bitrix24 Messenger.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "publicUrl": {
+            "type": "string",
+            "description": "Externally reachable base URL of this gateway, used for Bitrix24 event handlers (e.g., https://bot.example.com). Falls back to BITRIX24_PUBLIC_URL env var."
+          },
+          "webhookUrl": {
+            "type": "string",
+            "description": "Bitrix24 inbound webhook URL (e.g., https://your-portal.bitrix24.ru/rest/1/abc123/)",
+            "pattern": "^https://.+/rest/\\d+/[^/]+/?$"
+          },
+          "clientId": {
+            "type": "string",
+            "description": "OAuth app clientId for token refresh on the default account"
+          },
+          "clientSecret": {
+            "type": "string",
+            "description": "OAuth app clientSecret for token refresh on the default account"
+          },
+          "accounts": {
+            "type": "array",
+            "description": "Multiple Bitrix24 portals (advanced setup)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "description": "Unique account identifier" },
+                "webhookUrl": { "type": "string", "description": "Per-account webhook URL" },
+                "domain": { "type": "string", "description": "Portal domain (auto-extracted from webhook)" },
+                "accessToken": { "type": "string", "description": "OAuth access token" },
+                "refreshToken": { "type": "string", "description": "OAuth refresh token" },
+                "clientId": { "type": "string", "description": "OAuth app clientId for token refresh" },
+                "clientSecret": { "type": "string", "description": "OAuth app clientSecret for token refresh" },
+                "expiresAt": { "type": "number", "description": "OAuth token expiry timestamp in unix ms" },
+                "enabled": { "type": "boolean", "default": true },
+                "textChunkLimit": { "type": "number", "default": 4000 },
+                "dmPolicy": { "type": "string", "enum": ["open", "paired"], "default": "open" },
+                "bot": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string", "default": "OpenClaw Agent" },
+                    "lastName": { "type": "string" },
+                    "color": { "type": "string", "default": "PURPLE" },
+                    "workPosition": { "type": "string", "default": "AI Assistant" },
+                    "clientId": {
+                      "type": "string",
+                      "description": "Secret CLIENT_ID reused in every imbot.* call. Auto-derived from webhook for webhook accounts."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "uiHints": {
+        "publicUrl": {
+          "label": "Public gateway URL",
+          "placeholder": "https://bot.example.com"
+        },
+        "webhookUrl": {
+          "label": "Bitrix24 Webhook URL",
+          "placeholder": "https://your-portal.bitrix24.ru/rest/1/your-secret/",
+          "sensitive": true,
+          "helpText": "Create at: Portal > Developer resources > Other > Inbound webhook. Enable scopes: imbot, im, disk."
+        }
+      }
     }
   }
 }
