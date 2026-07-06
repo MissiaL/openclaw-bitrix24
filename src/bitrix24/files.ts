@@ -1,5 +1,5 @@
 import type { Bitrix24Client } from './client.js';
-import type { DiskFile, MediaAttachment } from './types.js';
+import type { MediaAttachment } from './types.js';
 
 // Cache storage ID per domain to avoid repeated lookups
 const storageCache = new Map<string, number>();

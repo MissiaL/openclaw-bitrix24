@@ -1,4 +1,4 @@
-import type { BitrixAuth, WebhookAuth } from './types.js';
+import type { BitrixAuth } from './types.js';
 
 /**
  * Resolve Bitrix24 authentication credentials.

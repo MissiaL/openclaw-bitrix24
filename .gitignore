@@ -5,6 +5,7 @@ dist/
 *.js.map
 !jest.config.js
 !vitest.config.ts
+!eslint.config.js
 .env
 .env.*
 coverage/

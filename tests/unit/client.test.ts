@@ -17,8 +17,6 @@ vi.mock('axios', () => {
   };
 });
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import axios from 'axios';
 const { __mockPost: mockPost, __mockGet: mockGet, __mockCreate: mockCreate } = await import('axios') as any;
 
 beforeEach(() => {

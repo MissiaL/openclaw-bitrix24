@@ -1,5 +1,5 @@
 import { Bitrix24Channel } from './channel.js';
-import { setBitrix24Runtime, type PluginRuntime } from './runtime.js';
+import { setBitrix24Runtime } from './runtime.js';
 import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
 import { resolvePublicUrl } from './public-url.js';
@@ -106,7 +106,7 @@ export default function register(api: any): void {
         api.logger.warn(`Bot deleted from account "${accountId}": ${event.botCode}`);
       }
     },
-    getApplicationToken: (accountId) => channel.getApplicationToken(accountId),
+    getApplicationToken: () => channel.getApplicationToken(),
   });
 
   // Modern SDK (2026.4+): raw Node handler mounted by the gateway.

@@ -1,5 +1,5 @@
 import type { Bitrix24Client } from './client.js';
-import type { OutgoingMessage, MediaAttachment } from './types.js';
+import type { OutgoingMessage } from './types.js';
 import { markdownToBBCode, chunkText } from './format.js';
 import { sendFile } from './files.js';
 import { extractChatId } from './targets.js';

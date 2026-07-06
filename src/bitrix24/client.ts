@@ -1,12 +1,11 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import type {
   Bitrix24ClientConfig,
   BitrixApiResponse,
   DiskFile,
-  WebhookAuth,
   OAuthAuth,
 } from './types.js';
-import { refreshTokens, expiresAtFromResponse, isTokenExpired, OAuthError } from './oauth.js';
+import { refreshTokens, expiresAtFromResponse, isTokenExpired } from './oauth.js';
 
 /**
  * Token-bucket rate limiter.

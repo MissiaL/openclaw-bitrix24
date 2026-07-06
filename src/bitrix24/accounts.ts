@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AccountConfig, BitrixAuth, BotConfig } from './types.js';
-import { Bitrix24Client, createClientFromWebhook } from './client.js';
+import { Bitrix24Client } from './client.js';
 import { resolveAuth, extractDomain } from './token.js';
 
 function deriveBotClientId(auth: BitrixAuth, explicitClientId?: string): string | undefined {

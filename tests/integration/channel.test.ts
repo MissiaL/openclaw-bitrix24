@@ -46,7 +46,7 @@ function createMockRuntime(): PluginRuntime {
 
 /** Helper: set up mockPost to return a Bitrix24 API response for a given method. */
 function mockApiResponse(method: string, result: any) {
-  mockPost.mockImplementation((url: string, _data: any) => {
+  mockPost.mockImplementation((url: string) => {
     if (url === `/${method}`) {
       return Promise.resolve({ data: { result } });
     }
@@ -57,7 +57,7 @@ function mockApiResponse(method: string, result: any) {
 
 /** Helper: set up mockPost to handle multiple methods with different responses. */
 function mockApiResponses(responses: Record<string, any>) {
-  mockPost.mockImplementation((url: string, _data: any) => {
+  mockPost.mockImplementation((url: string) => {
     const method = url.replace('/', '');
     if (method in responses) {
       return Promise.resolve({ data: { result: responses[method] } });

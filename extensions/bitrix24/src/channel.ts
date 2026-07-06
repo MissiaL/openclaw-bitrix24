@@ -196,7 +196,7 @@ export class Bitrix24Channel {
   /**
    * Get application token for webhook verification.
    */
-  getApplicationToken(accountId: string): string | undefined {
+  getApplicationToken(): string | undefined {
     // Application tokens are stored after ONAPPINSTALL;
     // for webhook-based auth they're not used
     return undefined;

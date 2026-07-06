@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
-import { createWebhookRouter, createWebhookApp, type WebhookHandlers } from '../../src/bitrix24/webhook-server.js';
+import { createWebhookApp } from '../../src/bitrix24/webhook-server.js';
 import type {
   Bitrix24MessageEvent,
   Bitrix24WelcomeEvent,
