@@ -40,7 +40,7 @@ describe('setConfigPath', () => {
 });
 
 describe('persistConfigValue', () => {
-  it('calls mutateConfigFile once with afterWrite.mode "auto" and a mutate that applies the value', async () => {
+  it('calls mutateConfigFile once with a non-restarting afterWrite and a mutate that applies the value', async () => {
     const mutateConfigFile = vi.fn().mockResolvedValue(undefined);
     const logger = { warn: vi.fn() };
 
@@ -53,7 +53,7 @@ describe('persistConfigValue', () => {
 
     expect(mutateConfigFile).toHaveBeenCalledOnce();
     const params = mutateConfigFile.mock.calls[0][0];
-    expect(params.afterWrite).toEqual({ mode: 'auto' });
+    expect(params.afterWrite).toEqual({ mode: 'none', reason: 'bitrix24 plugin durability write' });
     expect(typeof params.mutate).toBe('function');
 
     // Apply the captured mutate to a fake draft and assert the real effect.

@@ -724,7 +724,7 @@ describe('Bitrix24Channel integration', () => {
 
       expect(runtime.mutateConfigFile).toHaveBeenCalledOnce();
       const params = (runtime.mutateConfigFile as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(params.afterWrite).toEqual({ mode: 'auto' });
+      expect(params.afterWrite).toEqual({ mode: 'none', reason: 'bitrix24 plugin durability write' });
 
       const draft: any = {};
       params.mutate(draft);

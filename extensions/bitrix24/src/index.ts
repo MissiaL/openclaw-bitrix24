@@ -1,6 +1,6 @@
 import { Bitrix24Channel } from './channel.js';
 import { setBitrix24Runtime } from './runtime.js';
-import { persistConfigValue, type ConfigMutator } from './persist.js';
+import { persistConfigValue, DURABLE_AFTER_WRITE, type ConfigMutator } from './persist.js';
 import { wireInboundDispatch } from './inbound-dispatch.js';
 import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
@@ -74,7 +74,7 @@ export default function register(api: any): void {
     // letting the rejection propagate.
     try {
       await mutateConfigFile({
-        afterWrite: { mode: 'auto' },
+        afterWrite: DURABLE_AFTER_WRITE,
         mutate: (draft: any) => {
           const bitrix24 = (draft.channels ??= {}).bitrix24 ??= {};
           const accounts: any[] = (bitrix24.accounts ??= []);

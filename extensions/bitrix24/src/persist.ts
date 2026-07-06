@@ -9,9 +9,19 @@
  */
 
 export type ConfigMutator = (params: {
-  afterWrite: { mode: 'auto' };
+  afterWrite: { mode: 'auto' } | { mode: 'none'; reason: string };
   mutate: (draft: any) => void;
 }) => Promise<unknown>;
+
+// Plugin durability writes (TOFU token, botId, registeredWebhookBase, OAuth
+// tokens) update in-memory state immediately, so they only need to reach disk
+// for the next restart — they must NOT trigger a gateway reload/restart, which
+// would interrupt an in-flight agent turn. `mode: 'none'` writes without any
+// restart/hot-reload.
+export const DURABLE_AFTER_WRITE = {
+  mode: 'none',
+  reason: 'bitrix24 plugin durability write',
+} as const;
 
 /**
  * Set a value at a nested path (array of segments — dot-safe, so an
@@ -57,7 +67,7 @@ export async function persistConfigMutation(params: {
     return;
   }
 
-  await mutateConfigFile({ afterWrite: { mode: 'auto' }, mutate });
+  await mutateConfigFile({ afterWrite: DURABLE_AFTER_WRITE, mutate });
 }
 
 /**

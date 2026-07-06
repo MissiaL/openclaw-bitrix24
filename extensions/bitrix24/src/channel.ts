@@ -4,7 +4,7 @@ import { sendMessage } from '../../../src/bitrix24/send.js';
 import { downloadFile } from '../../../src/bitrix24/files.js';
 import type { IncomingMessage, MediaAttachment } from '../../../src/bitrix24/types.js';
 import { getBitrix24Runtime } from './runtime.js';
-import { persistConfigValue, persistConfigMutation, setConfigPath, upsertBitrix24Account } from './persist.js';
+import { persistConfigValue, persistConfigMutation, setConfigPath, upsertBitrix24Account, DURABLE_AFTER_WRITE } from './persist.js';
 
 /**
  * Heuristic check for a webhook base URL that Bitrix24's servers (which live
@@ -333,7 +333,7 @@ export class Bitrix24Channel {
     }
 
     runtime.mutateConfigFile({
-      afterWrite: { mode: 'auto' },
+      afterWrite: DURABLE_AFTER_WRITE,
       mutate: (draft: any) => upsertBitrix24Account(draft, accountId, { applicationToken: token }),
     }).catch((err: unknown) => {
       runtime.logger.warn(
