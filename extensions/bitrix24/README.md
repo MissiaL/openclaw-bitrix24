@@ -70,6 +70,10 @@ The plugin protects itself with **trust-on-first-use (TOFU) event authentication
 
 Beyond TOFU, keep `publicUrl` non-guessable where possible (a reverse-proxy path or a firewall allow-list for Bitrix24's IPs), and still treat inbound message content as untrusted input.
 
+## Debugging inbound delivery
+
+Received messages are delivered to the agent via `runtime.channel.inbound.dispatchReply`, and the reply is sent back to the same dialog. To trace this flow, set `BITRIX24_DEBUG=1` in the gateway environment: it logs the raw event body, the parsed message, the dispatch, and the reply delivery. It includes user message content (PII) — enable it only for a debugging session and unset it afterwards. Structural diagnostics (event name, account, lengths, resolved host helpers) are always logged.
+
 ## Multi-Account / OAuth
 
 ```yaml

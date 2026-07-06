@@ -232,7 +232,9 @@ openclaw-bitrix24/
     src/
       index.ts                   #   Plugin entry point (register channels, services, commands)
       channel.ts                 #   Bitrix24Channel class (messaging, lifecycle)
-      runtime.ts                 #   Runtime DI (logger, config)
+      inbound-dispatch.ts        #   Deliver parsed inbound events to the agent (runtime.channel.inbound.dispatchReply)
+      persist.ts                 #   Durable config writes (runtime.config.mutateConfigFile, non-restarting)
+      runtime.ts                 #   Runtime DI (logger, config, mutateConfigFile)
       public-url.ts              #   Resolve externally reachable base URL for event handlers
   src/bitrix24/                  # Core library
     accounts.ts                  #   Multi-account manager
@@ -354,6 +356,7 @@ The Bitrix24 webhook or OAuth app needs these scopes:
 - Check that `channels.bitrix24.publicUrl` (or `BITRIX24_PUBLIC_URL`) resolves to a publicly accessible HTTPS URL. See [Public URL (event handlers)](#public-url-event-handlers).
 - Verify the webhook URL in Bitrix24 is not expired or revoked.
 - If the account was previously connected from a different `publicUrl` and the first event since then didn't come from the real portal, TOFU may have pinned the wrong `application_token` and be rejecting real events with HTTP 403 -- see [Security](#security). Clear `accounts[].applicationToken` for the account and let the next real event re-pin it.
+- To trace inbound delivery, set `BITRIX24_DEBUG=1` in the gateway environment. This logs the raw event body, the parsed message, the dispatch to the agent, and the reply delivery back to the dialog. It includes user message content (PII), so enable it only for a debugging session and unset it afterwards. Structural diagnostics (event name, account, field lengths, which host helpers resolved) are always logged regardless of the flag.
 
 ### Rate limit errors (`QUERY_LIMIT_EXCEEDED` / HTTP 503 / HTTP 429)
 
