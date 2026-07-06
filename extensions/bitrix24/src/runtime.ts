@@ -3,6 +3,8 @@
  * Follows the same pattern as Telegram/Slack extensions.
  */
 
+import type { ConfigMutator } from './persist.js';
+
 export interface PluginRuntime {
   logger: {
     info: (msg: string, ...args: any[]) => void;
@@ -12,7 +14,8 @@ export interface PluginRuntime {
   };
   config: Record<string, any>;
   webhookBaseUrl: string;
-  persistRegisteredBase?: (accountId: string, base: string) => void;
+  /** Durable config writer injected from the host's `api.runtime.config.mutateConfigFile`. */
+  mutateConfigFile?: ConfigMutator;
 }
 
 let _runtime: PluginRuntime | null = null;

@@ -1,5 +1,6 @@
 import { Bitrix24Channel } from './channel.js';
 import { setBitrix24Runtime } from './runtime.js';
+import type { ConfigMutator } from './persist.js';
 import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
 import { resolvePublicUrl } from './public-url.js';
@@ -25,27 +26,53 @@ import {
 export default function register(api: any): void {
   const channel = new Bitrix24Channel();
 
+  // Bind so `this` (the host's config service) is preserved when called later.
+  // May be absent on older hosts that predate durable config writes.
+  const mutateConfigFile: ConfigMutator | undefined =
+    typeof api.runtime?.config?.mutateConfigFile === 'function'
+      ? api.runtime.config.mutateConfigFile.bind(api.runtime.config)
+      : undefined;
+
   // Initialize runtime for DI
   setBitrix24Runtime({
     logger: api.logger,
     config: api.config,
     webhookBaseUrl: resolvePublicUrl(api.config),
-    persistRegisteredBase: (accountId: string, base: string) => {
-      api.persistConfig?.(`channels.bitrix24.registeredWebhookBase.${accountId}`, base);
-    },
+    mutateConfigFile,
   });
 
   // Configure channel from user's openclaw config
   const channelConfig = api.config?.channels?.bitrix24 ?? {};
   channel.configure(channelConfig);
 
-  // Wire OAuth token persistence
-  channel.setTokenRefreshCallback((accountId, tokens) => {
+  // Wire OAuth token persistence.
+  // `channels.bitrix24.accounts` is an array of account objects (see
+  // `RawChannelConfig.accounts` in accounts.ts), so refreshed tokens must be
+  // upserted into the matching element by `id`, not written as an object key.
+  channel.setTokenRefreshCallback(async (accountId, tokens) => {
     api.logger.info(`OAuth tokens refreshed for Bitrix24 account "${accountId}"`);
-    api.persistConfig?.(`channels.bitrix24.accounts.${accountId}`, {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresAt: tokens.expiresAt,
+
+    if (typeof mutateConfigFile !== 'function') {
+      api.logger.warn(
+        `[bitrix24] host does not support durable config writes; OAuth tokens for "${accountId}" not persisted`,
+      );
+      return;
+    }
+
+    await mutateConfigFile({
+      afterWrite: { mode: 'auto' },
+      mutate: (draft: any) => {
+        const bitrix24 = (draft.channels ??= {}).bitrix24 ??= {};
+        const accounts: any[] = (bitrix24.accounts ??= []);
+        let account = accounts.find((a) => a?.id === accountId);
+        if (!account) {
+          account = { id: accountId };
+          accounts.push(account);
+        }
+        account.accessToken = tokens.accessToken;
+        account.refreshToken = tokens.refreshToken;
+        account.expiresAt = tokens.expiresAt;
+      },
     });
   });
 

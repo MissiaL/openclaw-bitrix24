@@ -40,8 +40,21 @@ function createMockRuntime(): PluginRuntime {
     },
     config: {},
     webhookBaseUrl: TEST_WEBHOOK_BASE_URL,
-    persistRegisteredBase: vi.fn(),
+    mutateConfigFile: vi.fn().mockResolvedValue(undefined),
   };
+}
+
+/**
+ * Apply the `mutate` callback captured from a `mutateConfigFile` call to a
+ * fresh draft object and return the value written at the given dot-path
+ * segments — this asserts the real effect of the mutate, not just that it
+ * ran.
+ */
+function applyMutateAndRead(mutateConfigFile: ReturnType<typeof vi.fn>, callIndex: number, segments: string[]): unknown {
+  const params = mutateConfigFile.mock.calls[callIndex][0];
+  const draft: any = {};
+  params.mutate(draft);
+  return segments.reduce((node: any, seg) => node?.[seg], draft);
 }
 
 /** Helper: set up mockPost to return a Bitrix24 API response for a given method. */
@@ -224,7 +237,13 @@ describe('Bitrix24Channel integration', () => {
         },
       });
 
-      expect(runtime.persistRegisteredBase).toHaveBeenCalledWith(TEST_ACCOUNT_ID, 'https://new.example');
+      expect(runtime.mutateConfigFile).toHaveBeenCalledOnce();
+      const writtenBase = applyMutateAndRead(
+        runtime.mutateConfigFile as ReturnType<typeof vi.fn>,
+        0,
+        ['channels', 'bitrix24', 'registeredWebhookBase', TEST_ACCOUNT_ID],
+      );
+      expect(writtenBase).toBe('https://new.example');
 
       trackingChannel.destroy();
     });
@@ -251,7 +270,7 @@ describe('Bitrix24Channel integration', () => {
 
       const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.update');
       expect(updateCall).toBeUndefined();
-      expect(runtime.persistRegisteredBase).not.toHaveBeenCalled();
+      expect(runtime.mutateConfigFile).not.toHaveBeenCalled();
       expect(runtime.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('already registered'),
       );
@@ -264,10 +283,13 @@ describe('Bitrix24Channel integration', () => {
 
       await channel.startupAccount(TEST_ACCOUNT_ID);
 
-      expect(runtime.persistRegisteredBase).toHaveBeenCalledWith(
-        TEST_ACCOUNT_ID,
-        TEST_WEBHOOK_BASE_URL,
+      expect(runtime.mutateConfigFile).toHaveBeenCalledOnce();
+      const writtenBase = applyMutateAndRead(
+        runtime.mutateConfigFile as ReturnType<typeof vi.fn>,
+        0,
+        ['channels', 'bitrix24', 'registeredWebhookBase', TEST_ACCOUNT_ID],
       );
+      expect(writtenBase).toBe(TEST_WEBHOOK_BASE_URL);
     });
 
     it('calls imbot.update on first startup after upgrade (botId present, no stored registeredWebhookBase)', async () => {
@@ -304,7 +326,13 @@ describe('Bitrix24Channel integration', () => {
         },
       });
 
-      expect(runtime.persistRegisteredBase).toHaveBeenCalledWith(TEST_ACCOUNT_ID, TEST_WEBHOOK_BASE_URL);
+      expect(runtime.mutateConfigFile).toHaveBeenCalledOnce();
+      const writtenBase = applyMutateAndRead(
+        runtime.mutateConfigFile as ReturnType<typeof vi.fn>,
+        0,
+        ['channels', 'bitrix24', 'registeredWebhookBase', TEST_ACCOUNT_ID],
+      );
+      expect(writtenBase).toBe(TEST_WEBHOOK_BASE_URL);
 
       trackingChannel.destroy();
     });

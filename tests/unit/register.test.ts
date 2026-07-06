@@ -10,6 +10,7 @@ function makeFakeApi(overrides: Record<string, any> = {}) {
     registerHttpRoute: vi.fn(),
     registerCommand: vi.fn(),
     persistConfig: vi.fn(),
+    runtime: { config: { mutateConfigFile: vi.fn().mockResolvedValue(undefined) } },
     ...overrides,
   };
 }

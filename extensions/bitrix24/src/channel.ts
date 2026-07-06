@@ -4,6 +4,7 @@ import { sendMessage } from '../../../src/bitrix24/send.js';
 import { downloadFile } from '../../../src/bitrix24/files.js';
 import type { IncomingMessage, MediaAttachment } from '../../../src/bitrix24/types.js';
 import { getBitrix24Runtime } from './runtime.js';
+import { persistConfigValue } from './persist.js';
 
 /**
  * Bitrix24 Channel Plugin — implements the OpenClaw ChannelPlugin interface.
@@ -138,7 +139,12 @@ export class Bitrix24Channel {
           webhookBaseUrl: base,
         });
         this.accountManager.setRegisteredWebhookBase(accountId, base);
-        runtime.persistRegisteredBase?.(accountId, base);
+        await persistConfigValue({
+          mutateConfigFile: runtime.mutateConfigFile,
+          logger: runtime.logger,
+          segments: ['channels', 'bitrix24', 'registeredWebhookBase', accountId],
+          value: base,
+        });
       } else {
         runtime.logger.info(`Bitrix24 bot already registered for "${accountId}" (ID: ${account.botId})`);
       }
@@ -159,7 +165,12 @@ export class Bitrix24Channel {
 
     this.accountManager.setBotInfo(accountId, botId, botCode);
     this.accountManager.setRegisteredWebhookBase(accountId, base);
-    runtime.persistRegisteredBase?.(accountId, base);
+    await persistConfigValue({
+      mutateConfigFile: runtime.mutateConfigFile,
+      logger: runtime.logger,
+      segments: ['channels', 'bitrix24', 'registeredWebhookBase', accountId],
+      value: base,
+    });
     runtime.logger.info(`Bitrix24 bot registered: ${botCode} (ID: ${botId})`);
   }
 
