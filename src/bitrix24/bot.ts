@@ -82,6 +82,36 @@ export async function updateBot(
 }
 
 /**
+ * Force an already-registered bot into `eventMode: 'webhook'` at the given
+ * base URL via `imbot.v2.Bot.update`.
+ *
+ * `imbot.v2.Bot.register` is idempotent on `fields.code`: a repeat call
+ * against an EXISTING bot (e.g. a bot that pre-dates this v2 migration, or
+ * was registered by a different token) returns that bot unchanged — it does
+ * NOT flip `eventMode` to `webhook` or set `webhookUrl` (spec §1). Without an
+ * explicit `Bot.update` immediately after register, such a bot would silently
+ * stay in `fetch` mode (or point at a stale URL) and never deliver events.
+ * `Bot.update` re-syncs all 8 `ONIMBOTV2*` subscriptions as a side effect
+ * (spec §2), so this single call is sufficient to bring the bot fully online.
+ *
+ * Throws `Bitrix24Error` (e.g. `BOT_OWNERSHIP_ERROR`) if the bot is owned by
+ * a different token than `botClientId` — callers must catch this and warn
+ * rather than crash, since it indicates a pre-existing bot needs manual
+ * re-registration on the portal.
+ */
+export async function ensureWebhookMode(
+  client: Bitrix24Client,
+  params: { botId: number; botClientId: string; accountId: string; webhookBaseUrl: string },
+): Promise<void> {
+  const webhookUrl = buildWebhookUrl(params.webhookBaseUrl, params.accountId);
+  await client.callMethod('imbot.v2.Bot.update', {
+    botId: params.botId,
+    botToken: params.botClientId,
+    fields: { eventMode: 'webhook', webhookUrl },
+  });
+}
+
+/**
  * Point an already-registered bot's webhook URL at a new public base URL.
  *
  * `imbot.v2.Bot.register` with an existing `code` returns the existing bot

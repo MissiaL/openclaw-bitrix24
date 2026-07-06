@@ -36,6 +36,31 @@ export function setConfigPath(draft: any, segments: string[], value: unknown): v
 }
 
 /**
+ * Durably apply an arbitrary mutation to openclaw.json via the host's
+ * mutateConfigFile. No-ops with a warning if the host doesn't expose it.
+ *
+ * Lower-level primitive underneath `persistConfigValue` — use this directly
+ * when a single durable write needs to touch more than one shape (e.g. a
+ * flat `segments` path AND an accounts-array upsert) so both land atomically
+ * in one `mutateConfigFile` call instead of two.
+ */
+export async function persistConfigMutation(params: {
+  mutateConfigFile: ConfigMutator | undefined;
+  logger: { warn: (m: string) => void };
+  description: string;
+  mutate: (draft: any) => void;
+}): Promise<void> {
+  const { mutateConfigFile, logger, description, mutate } = params;
+
+  if (!mutateConfigFile) {
+    logger.warn(`[bitrix24] host does not support durable config writes; ${description} not persisted`);
+    return;
+  }
+
+  await mutateConfigFile({ afterWrite: { mode: 'auto' }, mutate });
+}
+
+/**
  * Durably persist a single value into openclaw.json via the host's
  * mutateConfigFile. No-ops with a warning if the host doesn't expose it.
  */
@@ -47,14 +72,34 @@ export async function persistConfigValue(params: {
 }): Promise<void> {
   const { mutateConfigFile, logger, segments, value } = params;
 
-  if (!mutateConfigFile) {
-    const path = segments.join('.');
-    logger.warn(`[bitrix24] host does not support durable config writes; ${path} not persisted`);
-    return;
-  }
-
-  await mutateConfigFile({
-    afterWrite: { mode: 'auto' },
+  return persistConfigMutation({
+    mutateConfigFile,
+    logger,
+    description: segments.join('.'),
     mutate: (draft) => setConfigPath(draft, segments, value),
   });
+}
+
+/**
+ * Upsert fields into the matching element (by `id`) of the
+ * `channels.bitrix24.accounts` array inside a config draft, creating the
+ * element if it doesn't exist yet. `channels.bitrix24.accounts` is an array
+ * of account objects (see `RawChannelConfig.accounts` in accounts.ts), so any
+ * per-account durable write (OAuth tokens, `applicationToken`, `botId`/
+ * `botCode`) must upsert into the matching element rather than write a flat
+ * accountId-keyed map.
+ */
+export function upsertBitrix24Account(
+  draft: any,
+  accountId: string,
+  fields: Record<string, unknown>,
+): void {
+  const bitrix24 = (draft.channels ??= {}).bitrix24 ??= {};
+  const accounts: any[] = (bitrix24.accounts ??= []);
+  let account = accounts.find((a: any) => a?.id === accountId);
+  if (!account) {
+    account = { id: accountId };
+    accounts.push(account);
+  }
+  Object.assign(account, fields);
 }

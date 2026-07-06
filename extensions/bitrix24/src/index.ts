@@ -148,6 +148,7 @@ export default function register(api: any): void {
     },
     getApplicationToken: (accountId: string) => channel.getApplicationToken(accountId),
     captureApplicationToken: (accountId: string, token: string) => channel.captureApplicationToken(accountId, token),
+    hasAccount: (accountId: string) => channel.hasAccount(accountId),
   });
 
   // Modern SDK (2026.4+): raw Node handler mounted by the gateway.

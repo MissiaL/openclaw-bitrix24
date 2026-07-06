@@ -113,6 +113,44 @@ describe('parseMessageEvent', () => {
     expect(msg).toBeNull();
   });
 
+  it('returns null for messages authored by a bot when user.bot is a native JSON boolean true (minor fix b)', () => {
+    // createWebhookApp also accepts application/json bodies (express.json()),
+    // where a native boolean may arrive instead of webhook-mode's stringified "1".
+    const event = makeMessageEvent({ isBot: '1' });
+    (event.data.user as any).bot = true;
+    const msg = parseMessageEvent(event);
+    expect(msg).toBeNull();
+  });
+
+  it('does not treat user.bot = "0" or false as a bot echo', () => {
+    const event = makeMessageEvent({ isBot: '0' });
+    expect(parseMessageEvent(event)).not.toBeNull();
+
+    (event.data.user as any).bot = false;
+    expect(parseMessageEvent(event)).not.toBeNull();
+  });
+
+  it('drops system messages (message.isSystem = "1") — not forwarded to the agent', () => {
+    const event = makeMessageEvent({});
+    (event.data.message as any).isSystem = '1';
+    expect(parseMessageEvent(event)).toBeNull();
+  });
+
+  it('drops system messages when message.isSystem is a native JSON boolean true', () => {
+    const event = makeMessageEvent({});
+    (event.data.message as any).isSystem = true;
+    expect(parseMessageEvent(event)).toBeNull();
+  });
+
+  it('does not drop a normal message when isSystem is "0" or false', () => {
+    const event = makeMessageEvent({});
+    (event.data.message as any).isSystem = '0';
+    expect(parseMessageEvent(event)).not.toBeNull();
+
+    (event.data.message as any).isSystem = false;
+    expect(parseMessageEvent(event)).not.toBeNull();
+  });
+
   it('returns null when the bot object has no id', () => {
     const event = makeMessageEvent({});
     event.data.bot = { id: '', code: '' };
@@ -260,5 +298,21 @@ describe('verifyApplicationToken', () => {
 
   it('does not fail open when the pinned token is an empty string (TOFU fail-open guard)', () => {
     expect(verifyApplicationToken({ auth: { application_token: 'abc' } }, '')).toBe(false);
+  });
+
+  // ── Constant-time comparison (minor fix c) ──────────────────────────────
+
+  it('matches tokens that differ only in length (still uses the length check, not just timingSafeEqual)', () => {
+    expect(verifyApplicationToken({ auth: { application_token: 'abc' } }, 'abcd')).toBe(false);
+    expect(verifyApplicationToken({ auth: { application_token: 'abcd' } }, 'abc')).toBe(false);
+  });
+
+  it('matches equal-length tokens that differ only in the last character', () => {
+    expect(verifyApplicationToken({ auth: { application_token: 'abcdefgh' } }, 'abcdefgX')).toBe(false);
+  });
+
+  it('still matches long equal tokens (exercises the timingSafeEqual path, not just ===)', () => {
+    const token = 'a'.repeat(64);
+    expect(verifyApplicationToken({ auth: { application_token: token } }, token)).toBe(true);
   });
 });

@@ -9,6 +9,16 @@ export interface WebhookHandlers {
   getApplicationToken?: (accountId: string) => string | undefined;
   /** Trust-on-first-use: pin a newly-seen application_token for an account. */
   captureApplicationToken?: (accountId: string, token: string) => void;
+  /**
+   * Whether `accountId` (the attacker-chosen `:accountId` URL segment) is a
+   * known, configured account. When provided, events for an unrecognized
+   * accountId are rejected with 404 BEFORE auth/parse/dispatch — an
+   * unconfigured account has no TOFU-pinned token to check against, so
+   * `getApplicationToken` would return `undefined` and every forged event
+   * would otherwise be silently accepted. Optional for backward compatibility
+   * with callers that don't wire account lookup.
+   */
+  hasAccount?: (accountId: string) => boolean;
 }
 
 /** Minimal shape needed to read `event` before dispatching to a typed parser. */
@@ -75,6 +85,11 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
     try {
       const accountId = req.params.accountId as string;
       const body = req.body as WebhookBody;
+
+      if (handlers.hasAccount && !handlers.hasAccount(accountId)) {
+        res.status(404).json({ error: 'Unknown account' });
+        return;
+      }
 
       switch (body?.event) {
         case 'ONIMBOTV2MESSAGEADD': {

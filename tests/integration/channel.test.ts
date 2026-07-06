@@ -336,6 +336,139 @@ describe('Bitrix24Channel integration', () => {
     });
   });
 
+  // ── 2b. First-startup v2 self-healing (ensureWebhookMode) ────────────────
+
+  describe('startupAccount — first-startup v2 takeover self-healing', () => {
+    const BOT_ID = 42;
+    const BOT_CODE = `openclaw_${TEST_ACCOUNT_ID}`;
+
+    it('calls imbot.v2.Bot.update (ensureWebhookMode) with eventMode:webhook right after a fresh register', async () => {
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: BOT_CODE } });
+
+      await channel.startupAccount(TEST_ACCOUNT_ID);
+
+      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.v2.Bot.update');
+      expect(updateCall).toBeDefined();
+      expect(updateCall![1]).toEqual({
+        botId: BOT_ID,
+        botToken: TEST_BOT_CLIENT_ID,
+        fields: {
+          eventMode: 'webhook',
+          webhookUrl: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}`,
+        },
+      });
+
+      // Register happened before update.
+      const callOrder = mockPost.mock.calls.map((call) => call[0]);
+      expect(callOrder.indexOf('/imbot.v2.Bot.register')).toBeLessThan(
+        callOrder.indexOf('/imbot.v2.Bot.update'),
+      );
+    });
+
+    it('catches a BOT_OWNERSHIP_ERROR from ensureWebhookMode, warns actionably, and does not throw out of startupAccount', async () => {
+      mockPost.mockImplementation((url: string) => {
+        if (url === '/imbot.v2.Bot.register') {
+          return Promise.resolve({ data: { result: { bot: { id: BOT_ID, code: BOT_CODE } } } });
+        }
+        if (url === '/imbot.v2.Bot.update') {
+          return Promise.resolve({
+            data: { error: 'BOT_OWNERSHIP_ERROR', error_description: 'Bot is owned by a different token' },
+          });
+        }
+        return Promise.resolve({ data: { result: true } });
+      });
+
+      await expect(channel.startupAccount(TEST_ACCOUNT_ID)).resolves.toBeUndefined();
+
+      expect(runtime.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining(`Bitrix24 bot "${BOT_CODE}" exists but is owned by a different token`),
+      );
+      expect(runtime.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Manual re-registration required'),
+      );
+
+      // Registration must still have completed — botId/botCode stored.
+      const account = channel.resolveAccount(TEST_ACCOUNT_ID);
+      expect(account!.botId).toBe(BOT_ID);
+      expect(account!.botCode).toBe(BOT_CODE);
+    });
+
+    it('does not warn when ensureWebhookMode succeeds', async () => {
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: BOT_CODE } });
+
+      await channel.startupAccount(TEST_ACCOUNT_ID);
+
+      const warnCalls = (runtime.logger.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+      expect(warnCalls.some((m) => m.includes('owned by a different token'))).toBe(false);
+    });
+
+    it('persists botId/botCode into the accounts array upon fresh registration', async () => {
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: BOT_CODE } });
+
+      await channel.startupAccount(TEST_ACCOUNT_ID);
+
+      expect(runtime.mutateConfigFile).toHaveBeenCalledOnce();
+      const params = (runtime.mutateConfigFile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+
+      const draft: any = { channels: { bitrix24: { accounts: [{ id: TEST_ACCOUNT_ID, webhookUrl: TEST_WEBHOOK_URL }] } } };
+      params.mutate(draft);
+
+      const account = draft.channels.bitrix24.accounts.find((a: any) => a?.id === TEST_ACCOUNT_ID);
+      expect(account).toBeDefined();
+      expect(account.botId).toBe(BOT_ID);
+      expect(account.botCode).toBe(BOT_CODE);
+      // registeredWebhookBase (flat map) is written by the same mutate call.
+      expect(draft.channels.bitrix24.registeredWebhookBase[TEST_ACCOUNT_ID]).toBe(TEST_WEBHOOK_BASE_URL);
+    });
+
+    it('persists botId/botCode even when ensureWebhookMode fails (ownership error)', async () => {
+      mockPost.mockImplementation((url: string) => {
+        if (url === '/imbot.v2.Bot.register') {
+          return Promise.resolve({ data: { result: { bot: { id: BOT_ID, code: BOT_CODE } } } });
+        }
+        if (url === '/imbot.v2.Bot.update') {
+          return Promise.resolve({
+            data: { error: 'BOT_OWNERSHIP_ERROR', error_description: 'Bot is owned by a different token' },
+          });
+        }
+        return Promise.resolve({ data: { result: true } });
+      });
+
+      await channel.startupAccount(TEST_ACCOUNT_ID);
+
+      expect(runtime.mutateConfigFile).toHaveBeenCalledOnce();
+      const params = (runtime.mutateConfigFile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const draft: any = {};
+      params.mutate(draft);
+      const account = draft.channels.bitrix24.accounts.find((a: any) => a?.id === TEST_ACCOUNT_ID);
+      expect(account.botId).toBe(BOT_ID);
+      expect(account.botCode).toBe(BOT_CODE);
+    });
+
+    it('warns (but does not block) when the resolved webhook base looks like localhost/non-https', async () => {
+      runtime.webhookBaseUrl = 'http://localhost:18789';
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: BOT_CODE } });
+
+      await channel.startupAccount(TEST_ACCOUNT_ID);
+
+      expect(runtime.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('looks like localhost/non-https'),
+      );
+      // Still registers — warning is advisory only.
+      const registerCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.v2.Bot.register');
+      expect(registerCall).toBeDefined();
+    });
+
+    it('does not warn about reachability for a normal https public URL', async () => {
+      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: BOT_CODE } });
+
+      await channel.startupAccount(TEST_ACCOUNT_ID);
+
+      const warnCalls = (runtime.logger.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+      expect(warnCalls.some((m) => m.includes('localhost/non-https'))).toBe(false);
+    });
+  });
+
   // ── 3. sendTextMessage ───────────────────────────────────────────────────
 
   describe('sendTextMessage', () => {

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import type {
   Bitrix24MessageEvent,
   Bitrix24WelcomeEvent,
@@ -126,9 +127,19 @@ export function parseMessageEvent(body: Bitrix24MessageEvent): IncomingMessage |
 
   const { message, chat, user } = data;
 
-  // Ignore messages from bots to prevent loops. Webhook mode stringifies
-  // the boolean `user.bot` field as "1"/"0" (spec §7).
-  if (user?.bot === '1') {
+  // Ignore messages from bots to prevent loops. Webhook mode stringifies the
+  // boolean `user.bot` field as "1"/"0" (spec §7), but `createWebhookApp` also
+  // accepts `application/json` bodies (express.json()), where a real Bitrix24
+  // portal or a test fixture may send a native JSON boolean instead — accept
+  // both representations.
+  if (user?.bot === '1' || (user?.bot as unknown) === true) {
+    return null;
+  }
+
+  // Drop system messages (authorId 0, e.g. join/leave notices) — these are
+  // not user content and should not be forwarded to the agent. Same
+  // string/boolean duality as `user.bot` above.
+  if (message.isSystem === '1' || (message.isSystem as unknown) === true) {
     return null;
   }
 
@@ -213,5 +224,18 @@ export function verifyApplicationToken(
   // pinned token — including the degenerate empty string '' — must match
   // exactly; treating '' as "no token" would fail open for every event.
   if (expectedToken === undefined || expectedToken === null) return true;
-  return event.auth?.application_token === expectedToken;
+
+  const actual = event.auth?.application_token;
+  if (typeof actual !== 'string') return false;
+
+  // Constant-time comparison: a naive `===` leaks timing information
+  // proportional to the length of the matching prefix, which could help an
+  // attacker brute-force the pinned token byte-by-byte. `timingSafeEqual`
+  // requires equal-length buffers, so the length check itself (a cheap,
+  // non-secret comparison) must happen first.
+  const expectedBuf = Buffer.from(expectedToken, 'utf8');
+  const actualBuf = Buffer.from(actual, 'utf8');
+  if (expectedBuf.length !== actualBuf.length) return false;
+
+  return timingSafeEqual(expectedBuf, actualBuf);
 }

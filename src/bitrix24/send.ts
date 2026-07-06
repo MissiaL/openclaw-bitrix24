@@ -37,14 +37,18 @@ export async function sendMessage(
   const bbText = markdownToBBCode(msg.text);
   const chunks = chunkText(bbText, chunkLimit);
 
-  // 3. Send text chunks
-  for (const chunk of chunks) {
+  // 3. Send text chunks. Keyboard (if any) is attached to the LAST chunk only
+  // — use a numeric loop index rather than `chunks.indexOf(chunk)`, which is
+  // both O(n^2) and wrong whenever two chunks happen to be identical strings
+  // (indexOf always finds the FIRST match, attaching the keyboard there
+  // instead of to the actual last chunk).
+  for (let i = 0; i < chunks.length; i++) {
     const id = await sendTextMessage(client, {
       botId: msg.botId,
       botClientId: msg.botClientId,
       dialogId: msg.dialogId,
-      text: chunk,
-      keyboard: chunks.indexOf(chunk) === chunks.length - 1 ? msg.keyboard : undefined,
+      text: chunks[i],
+      keyboard: i === chunks.length - 1 ? msg.keyboard : undefined,
     });
     messageIds.push(id);
   }

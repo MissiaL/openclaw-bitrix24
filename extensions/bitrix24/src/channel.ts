@@ -1,10 +1,28 @@
 import { AccountManager, type RawChannelConfig } from '../../../src/bitrix24/accounts.js';
-import { registerBot, unregisterBot, updateBotEventUrls } from '../../../src/bitrix24/bot.js';
+import { registerBot, unregisterBot, updateBotEventUrls, ensureWebhookMode } from '../../../src/bitrix24/bot.js';
 import { sendMessage } from '../../../src/bitrix24/send.js';
 import { downloadFile } from '../../../src/bitrix24/files.js';
 import type { IncomingMessage, MediaAttachment } from '../../../src/bitrix24/types.js';
 import { getBitrix24Runtime } from './runtime.js';
-import { persistConfigValue } from './persist.js';
+import { persistConfigValue, persistConfigMutation, setConfigPath, upsertBitrix24Account } from './persist.js';
+
+/**
+ * Heuristic check for a webhook base URL that Bitrix24's servers (which live
+ * outside any private network) will not be able to reach: plain HTTP, or a
+ * loopback/`.local` hostname. Deploy-safety net only — never blocks
+ * registration, just warns so a misconfigured `publicUrl` is caught before
+ * events silently never arrive.
+ */
+function isLikelyUnreachableWebhookBase(base: string): boolean {
+  try {
+    const url = new URL(base);
+    if (url.protocol !== 'https:') return true;
+    const host = url.hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.local');
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Bitrix24 Channel Plugin — implements the OpenClaw ChannelPlugin interface.
@@ -45,6 +63,19 @@ export class Bitrix24Channel {
 
   resolveAccount(id: string) {
     return this.accountManager.getAccount(id);
+  }
+
+  /**
+   * Whether `accountId` is a known, configured account. The webhook route's
+   * `:accountId` path segment is attacker-chosen (route auth is `'plugin'` —
+   * Bitrix24 cannot send a gateway token), so `webhook-server.ts` must reject
+   * events for accountIds outside this set BEFORE TOFU auth/parsing/dispatch
+   * — otherwise an unconfigured id bypasses TOFU entirely (no stored token
+   * ever exists to check against, so `getApplicationToken` returns
+   * `undefined` and every event is accepted).
+   */
+  hasAccount(accountId: string): boolean {
+    return this.accountManager.getAccount(accountId) !== undefined;
   }
 
   // ── Messaging ────────────────────────────────────────────────────────────
@@ -174,6 +205,14 @@ export class Bitrix24Channel {
     if (!account.bot.clientId) {
       throw new Error(`Account "${accountId}" bot token is not configured`);
     }
+    if (isLikelyUnreachableWebhookBase(base)) {
+      runtime.logger.warn(
+        `Bitrix24 webhook base URL "${base}" for "${accountId}" looks like localhost/non-https; ` +
+        'Bitrix24 servers will not be able to reach this address. Configure channels.bitrix24.publicUrl ' +
+        '(or BITRIX24_PUBLIC_URL) with a publicly reachable HTTPS URL before deploying.',
+      );
+    }
+
     const { botId, botCode } = await registerBot(
       client,
       accountId,
@@ -181,13 +220,38 @@ export class Bitrix24Channel {
       account.bot,
     );
 
+    // `imbot.v2.Bot.register` is idempotent on `fields.code`: if a bot with
+    // this code already existed (e.g. a pre-v2 registration, or a prior
+    // OpenClaw install), the call above returned that EXISTING bot WITHOUT
+    // updating it — it may still be in `eventMode: 'fetch'` or pointed at a
+    // stale URL, so events would never reach us. Force it into webhook mode
+    // now. A `BOT_OWNERSHIP_ERROR` (bot owned by a different token) or any
+    // other failure here must not crash startup — just warn actionably, so
+    // the operator knows manual re-registration on the portal is required.
+    try {
+      await ensureWebhookMode(client, {
+        botId,
+        botClientId: account.bot.clientId,
+        accountId,
+        webhookBaseUrl: base,
+      });
+    } catch (err) {
+      runtime.logger.warn(
+        `Bitrix24 bot "${botCode}" exists but is owned by a different token (likely a pre-v2 registration). ` +
+        `Manual re-registration required: unregister the old bot on the portal, then restart. (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+
     this.accountManager.setBotInfo(accountId, botId, botCode);
     this.accountManager.setRegisteredWebhookBase(accountId, base);
-    await persistConfigValue({
+    await persistConfigMutation({
       mutateConfigFile: runtime.mutateConfigFile,
       logger: runtime.logger,
-      segments: ['channels', 'bitrix24', 'registeredWebhookBase', accountId],
-      value: base,
+      description: `registeredWebhookBase/botId/botCode for "${accountId}"`,
+      mutate: (draft: any) => {
+        setConfigPath(draft, ['channels', 'bitrix24', 'registeredWebhookBase', accountId], base);
+        upsertBitrix24Account(draft, accountId, { botId, botCode });
+      },
     });
     runtime.logger.info(`Bitrix24 bot registered: ${botCode} (ID: ${botId})`);
   }
@@ -270,16 +334,7 @@ export class Bitrix24Channel {
 
     runtime.mutateConfigFile({
       afterWrite: { mode: 'auto' },
-      mutate: (draft: any) => {
-        const bitrix24 = (draft.channels ??= {}).bitrix24 ??= {};
-        const accounts: any[] = (bitrix24.accounts ??= []);
-        let account = accounts.find((a) => a?.id === accountId);
-        if (!account) {
-          account = { id: accountId };
-          accounts.push(account);
-        }
-        account.applicationToken = token;
-      },
+      mutate: (draft: any) => upsertBitrix24Account(draft, accountId, { applicationToken: token }),
     }).catch((err: unknown) => {
       runtime.logger.warn(
         `[bitrix24] failed to persist application_token for "${accountId}"; continuing without durable write: ${err}`,

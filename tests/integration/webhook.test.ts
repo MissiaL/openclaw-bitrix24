@@ -114,6 +114,7 @@ describe('Webhook server integration', () => {
   let onBotDelete: ReturnType<typeof vi.fn>;
   let getApplicationToken: ReturnType<typeof vi.fn>;
   let captureApplicationToken: ReturnType<typeof vi.fn>;
+  let hasAccount: ReturnType<typeof vi.fn>;
 
   beforeAll(async () => {
     onMessage = vi.fn();
@@ -121,6 +122,7 @@ describe('Webhook server integration', () => {
     onBotDelete = vi.fn();
     getApplicationToken = vi.fn();
     captureApplicationToken = vi.fn();
+    hasAccount = vi.fn();
 
     const app = createWebhookApp({
       onMessage,
@@ -128,6 +130,7 @@ describe('Webhook server integration', () => {
       onBotDelete,
       getApplicationToken,
       captureApplicationToken,
+      hasAccount,
     });
 
     const started = await startServer(app);
@@ -145,6 +148,10 @@ describe('Webhook server integration', () => {
     onBotDelete.mockReset();
     getApplicationToken.mockReset();
     captureApplicationToken.mockReset();
+    // Default: every accountId used by the existing fixtures is "known" —
+    // individual tests in the "Unknown accountId" block override this.
+    hasAccount.mockReset();
+    hasAccount.mockReturnValue(true);
   });
 
   // ── Message dispatch (ONIMBOTV2MESSAGEADD) ──────────────────────────────
@@ -414,6 +421,70 @@ describe('Webhook server integration', () => {
       res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
       expect(res.status).toBe(403);
       expect(onBotDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Unknown accountId (Important 3: reject before auth/parse/dispatch) ──
+
+  describe('Unknown accountId', () => {
+    it('rejects a message event for an unconfigured accountId with 404, calling no handler', async () => {
+      hasAccount.mockReturnValue(false);
+
+      const event = makeMessageEvent();
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json).toEqual({ error: 'Unknown account' });
+      expect(onMessage).not.toHaveBeenCalled();
+      expect(getApplicationToken).not.toHaveBeenCalled();
+      expect(captureApplicationToken).not.toHaveBeenCalled();
+    });
+
+    it('rejects a welcome event for an unconfigured accountId with 404, calling no handler', async () => {
+      hasAccount.mockReturnValue(false);
+
+      const event = makeWelcomeEvent();
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json).toEqual({ error: 'Unknown account' });
+      expect(onWelcome).not.toHaveBeenCalled();
+    });
+
+    it('rejects a bot-delete event for an unconfigured accountId with 404, calling no handler', async () => {
+      hasAccount.mockReturnValue(false);
+
+      const event = makeBotDeleteEvent();
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(404);
+      const json = await res.json();
+      expect(json).toEqual({ error: 'Unknown account' });
+      expect(onBotDelete).not.toHaveBeenCalled();
+    });
+
+    it('checks hasAccount with the accountId parsed from the URL', async () => {
+      hasAccount.mockReturnValue(false);
+      const customAccountId = 'attacker-guessed-id';
+
+      await post(baseUrl, `/webhook/bitrix24/${customAccountId}`, makeMessageEvent());
+
+      expect(hasAccount).toHaveBeenCalledWith(customAccountId);
+    });
+
+    it('still dispatches normally when hasAccount is not provided (backward compatible)', async () => {
+      const onMessageNoGate = vi.fn();
+      const appWithoutGate = createWebhookApp({ onMessage: onMessageNoGate });
+      const { server: srv, baseUrl: url } = await startServer(appWithoutGate);
+      try {
+        const res = await post(url, `/webhook/bitrix24/${ACCOUNT_ID}`, makeMessageEvent());
+        expect(res.status).toBe(200);
+        expect(onMessageNoGate).toHaveBeenCalledOnce();
+      } finally {
+        await stopServer(srv);
+      }
     });
   });
 
