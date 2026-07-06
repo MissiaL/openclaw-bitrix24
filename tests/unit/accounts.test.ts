@@ -419,6 +419,70 @@ describe('AccountManager OAuth config', () => {
   });
 });
 
+// ── applicationToken (TOFU) ──────────────────────────────────────────────────
+
+describe('AccountManager applicationToken (TOFU)', () => {
+  it('loads applicationToken from account config when present', () => {
+    const manager = new AccountManager();
+    manager.loadFromConfig({
+      accounts: [
+        {
+          id: 'pinned',
+          webhookUrl: 'https://pinned.bitrix24.ru/rest/1/k/',
+          applicationToken: 'stored-token-abc',
+        },
+      ],
+    });
+
+    expect(manager.getApplicationToken('pinned')).toBe('stored-token-abc');
+    manager.destroy();
+  });
+
+  it('returns undefined when no applicationToken is configured', () => {
+    const manager = new AccountManager();
+    manager.loadFromConfig({
+      accounts: [
+        { id: 'fresh', webhookUrl: 'https://fresh.bitrix24.ru/rest/1/k/' },
+      ],
+    });
+
+    expect(manager.getApplicationToken('fresh')).toBeUndefined();
+    manager.destroy();
+  });
+
+  it('returns undefined for an unknown account id', () => {
+    const manager = new AccountManager();
+    manager.loadFromConfig({});
+    expect(manager.getApplicationToken('nonexistent')).toBeUndefined();
+    manager.destroy();
+  });
+
+  it('setApplicationToken updates the in-memory value, readable via getApplicationToken', () => {
+    const manager = new AccountManager();
+    manager.loadFromConfig({
+      accounts: [
+        { id: 'live', webhookUrl: 'https://live.bitrix24.ru/rest/1/k/' },
+      ],
+    });
+
+    expect(manager.getApplicationToken('live')).toBeUndefined();
+    manager.setApplicationToken('live', 'captured-first-use');
+    expect(manager.getApplicationToken('live')).toBe('captured-first-use');
+
+    manager.destroy();
+  });
+
+  it('setApplicationToken does nothing when account does not exist', () => {
+    const manager = new AccountManager();
+    manager.loadFromConfig({});
+
+    expect(() => manager.setApplicationToken('missing', 'tok')).not.toThrow();
+    expect(manager.getApplicationToken('missing')).toBeUndefined();
+
+    manager.destroy();
+  });
+});
+
 // ── setTokenRefreshCallback ──────────────────────────────────────────────────
 
 describe('AccountManager.setTokenRefreshCallback', () => {

@@ -113,18 +113,21 @@ describe('Webhook server integration', () => {
   let onWelcome: ReturnType<typeof vi.fn>;
   let onBotDelete: ReturnType<typeof vi.fn>;
   let getApplicationToken: ReturnType<typeof vi.fn>;
+  let captureApplicationToken: ReturnType<typeof vi.fn>;
 
   beforeAll(async () => {
     onMessage = vi.fn();
     onWelcome = vi.fn();
     onBotDelete = vi.fn();
     getApplicationToken = vi.fn();
+    captureApplicationToken = vi.fn();
 
     const app = createWebhookApp({
       onMessage,
       onWelcome,
       onBotDelete,
       getApplicationToken,
+      captureApplicationToken,
     });
 
     const started = await startServer(app);
@@ -141,6 +144,7 @@ describe('Webhook server integration', () => {
     onWelcome.mockReset();
     onBotDelete.mockReset();
     getApplicationToken.mockReset();
+    captureApplicationToken.mockReset();
   });
 
   // ── Message dispatch (ONIMBOTV2MESSAGEADD) ──────────────────────────────
@@ -308,6 +312,107 @@ describe('Webhook server integration', () => {
       const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
 
       expect(res.status).toBe(200);
+      expect(onBotDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── TOFU application_token pinning ──────────────────────────────────────
+
+  describe('Trust-on-first-use application_token pinning', () => {
+    it('(a) accepts the first event for an account with no stored token AND captures/persists it', async () => {
+      getApplicationToken.mockReturnValue(undefined);
+
+      const event = makeMessageEvent({ appToken: 'freshly-seen-token' });
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(200);
+      expect(onMessage).toHaveBeenCalledOnce();
+      expect(captureApplicationToken).toHaveBeenCalledOnce();
+      expect(captureApplicationToken).toHaveBeenCalledWith(ACCOUNT_ID, 'freshly-seen-token');
+    });
+
+    it('(a) does not capture anything on first event when the event itself carries no token', async () => {
+      getApplicationToken.mockReturnValue(undefined);
+
+      const event = makeMessageEvent();
+      delete (event as any).auth;
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(200);
+      expect(onMessage).toHaveBeenCalledOnce();
+      expect(captureApplicationToken).not.toHaveBeenCalled();
+    });
+
+    it('(b) accepts a subsequent event whose token matches the stored (pinned) token', async () => {
+      getApplicationToken.mockReturnValue(APP_TOKEN);
+
+      const event = makeMessageEvent({ appToken: APP_TOKEN });
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(200);
+      expect(onMessage).toHaveBeenCalledOnce();
+      // Already pinned -> no re-capture on the verify path.
+      expect(captureApplicationToken).not.toHaveBeenCalled();
+    });
+
+    it('(c) rejects with 403 when the token differs from the pinned token, and does NOT invoke the handler', async () => {
+      getApplicationToken.mockReturnValue(APP_TOKEN);
+
+      const event = makeMessageEvent({ appToken: 'forged-token' });
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json).toEqual({ error: 'Invalid application token' });
+      expect(onMessage).not.toHaveBeenCalled();
+      expect(captureApplicationToken).not.toHaveBeenCalled();
+    });
+
+    it('(d) rejects with 403 when a token is pinned but the event omits it entirely (fail closed)', async () => {
+      getApplicationToken.mockReturnValue(APP_TOKEN);
+
+      const event = makeMessageEvent();
+      delete (event as any).auth;
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(403);
+      expect(onMessage).not.toHaveBeenCalled();
+    });
+
+    it('(e) gates ONIMBOTV2JOINCHAT the same way: first event captures, mismatched token is rejected', async () => {
+      getApplicationToken.mockReturnValue(undefined);
+      let event = makeWelcomeEvent();
+      let res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+      expect(res.status).toBe(200);
+      expect(onWelcome).toHaveBeenCalledOnce();
+      expect(captureApplicationToken).toHaveBeenCalledWith(ACCOUNT_ID, APP_TOKEN);
+
+      onWelcome.mockReset();
+      captureApplicationToken.mockReset();
+      getApplicationToken.mockReturnValue(APP_TOKEN);
+      event = makeWelcomeEvent();
+      event.auth = { domain: 'test.bitrix24.ru', application_token: 'wrong-token' };
+      res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+      expect(res.status).toBe(403);
+      expect(onWelcome).not.toHaveBeenCalled();
+    });
+
+    it('(e) gates ONIMBOTV2DELETE the same way: first event captures, mismatched token is rejected', async () => {
+      getApplicationToken.mockReturnValue(undefined);
+      let event = makeBotDeleteEvent();
+      event.auth = { domain: 'test.bitrix24.ru', application_token: APP_TOKEN };
+      let res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+      expect(res.status).toBe(200);
+      expect(onBotDelete).toHaveBeenCalledOnce();
+      expect(captureApplicationToken).toHaveBeenCalledWith(ACCOUNT_ID, APP_TOKEN);
+
+      onBotDelete.mockReset();
+      captureApplicationToken.mockReset();
+      getApplicationToken.mockReturnValue(APP_TOKEN);
+      event = makeBotDeleteEvent();
+      event.auth = { domain: 'test.bitrix24.ru', application_token: 'wrong-token' };
+      res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+      expect(res.status).toBe(403);
       expect(onBotDelete).not.toHaveBeenCalled();
     });
   });

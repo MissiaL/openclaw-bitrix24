@@ -146,7 +146,8 @@ export default function register(api: any): void {
         api.logger.warn(`Bot deleted from account "${accountId}": ${event.botCode}`);
       }
     },
-    getApplicationToken: () => channel.getApplicationToken(),
+    getApplicationToken: (accountId: string) => channel.getApplicationToken(accountId),
+    captureApplicationToken: (accountId: string, token: string) => channel.captureApplicationToken(accountId, token),
   });
 
   // Modern SDK (2026.4+): raw Node handler mounted by the gateway.

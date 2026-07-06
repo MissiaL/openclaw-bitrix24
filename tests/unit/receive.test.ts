@@ -193,4 +193,12 @@ describe('verifyApplicationToken', () => {
     expect(verifyApplicationToken(body, 'top-level-token')).toBe(true);
     expect(verifyApplicationToken(body, 'nested-different-token')).toBe(false);
   });
+
+  it('fails CLOSED when a token is pinned but the event omits auth entirely (spec §7: "not always present")', () => {
+    expect(verifyApplicationToken({}, 'pinned-token')).toBe(false);
+  });
+
+  it('fails CLOSED when a token is pinned but the event auth block omits application_token', () => {
+    expect(verifyApplicationToken({ auth: {} }, 'pinned-token')).toBe(false);
+  });
 });

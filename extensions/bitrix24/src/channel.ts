@@ -205,12 +205,68 @@ export class Bitrix24Channel {
   // ── Directory ────────────────────────────────────────────────────────────
 
   /**
-   * Get application token for webhook verification.
+   * Get the TOFU-pinned webhook authenticity token for an account, if any
+   * has been captured yet. Read by `webhook-server.ts` and passed to
+   * `verifyApplicationToken` (src/bitrix24/receive.ts) to authenticate
+   * incoming events.
+   *
+   * Security rationale: the webhook route is registered with `auth: 'plugin'`
+   * (no gateway token — Bitrix24 cannot send one), so without this check
+   * anyone who learns the webhook URL could inject forged events. TOFU pins
+   * the portal's `application_token` from the first real event and rejects
+   * everything else (see `captureApplicationToken` below).
    */
-  getApplicationToken(): string | undefined {
-    // Application tokens are stored after ONAPPINSTALL;
-    // for webhook-based auth they're not used
-    return undefined;
+  getApplicationToken(accountId: string): string | undefined {
+    return this.accountManager.getApplicationToken(accountId);
+  }
+
+  /**
+   * Trust-on-first-use (TOFU) capture: pin the portal's top-level
+   * `auth.application_token` from the first accepted webhook event for this
+   * account, both in memory (so subsequent events in this process are
+   * verified immediately) and durably in config (so the pin survives a
+   * gateway restart).
+   *
+   * `channels.bitrix24.accounts` is an array of account objects (see
+   * `RawChannelConfig.accounts` in accounts.ts), so the persisted value must
+   * be upserted into the matching element by `id` — the same shape used for
+   * the OAuth-token upsert in index.ts, not the flat accountId-keyed map used
+   * for `registeredWebhookBase`.
+   *
+   * Called synchronously from the webhook request handler
+   * (webhook-server.ts), so the durable write is fire-and-forget: a
+   * config-write failure must not delay or fail the webhook response, and
+   * the in-memory pin (already applied above) already protects subsequent
+   * events within this process regardless of persistence outcome.
+   */
+  captureApplicationToken(accountId: string, token: string): void {
+    this.accountManager.setApplicationToken(accountId, token);
+
+    const runtime = getBitrix24Runtime();
+    if (typeof runtime.mutateConfigFile !== 'function') {
+      runtime.logger.warn(
+        `[bitrix24] host does not support durable config writes; application_token for "${accountId}" not persisted`,
+      );
+      return;
+    }
+
+    runtime.mutateConfigFile({
+      afterWrite: { mode: 'auto' },
+      mutate: (draft: any) => {
+        const bitrix24 = (draft.channels ??= {}).bitrix24 ??= {};
+        const accounts: any[] = (bitrix24.accounts ??= []);
+        let account = accounts.find((a) => a?.id === accountId);
+        if (!account) {
+          account = { id: accountId };
+          accounts.push(account);
+        }
+        account.applicationToken = token;
+      },
+    }).catch((err: unknown) => {
+      runtime.logger.warn(
+        `[bitrix24] failed to persist application_token for "${accountId}"; continuing without durable write: ${err}`,
+      );
+    });
   }
 
   /**

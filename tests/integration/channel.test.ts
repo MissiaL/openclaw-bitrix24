@@ -574,6 +574,57 @@ describe('Bitrix24Channel integration', () => {
     });
   });
 
+  // ── 4b. TOFU application_token capture ───────────────────────────────────
+
+  describe('getApplicationToken / captureApplicationToken (TOFU)', () => {
+    it('returns undefined before any token has been captured', () => {
+      expect(channel.getApplicationToken(TEST_ACCOUNT_ID)).toBeUndefined();
+    });
+
+    it('captureApplicationToken sets the token in memory immediately', () => {
+      channel.captureApplicationToken(TEST_ACCOUNT_ID, 'first-use-token');
+      expect(channel.getApplicationToken(TEST_ACCOUNT_ID)).toBe('first-use-token');
+    });
+
+    it('captureApplicationToken persists via mutateConfigFile using the accounts-array upsert shape', () => {
+      channel.captureApplicationToken(TEST_ACCOUNT_ID, 'persisted-token');
+
+      expect(runtime.mutateConfigFile).toHaveBeenCalledOnce();
+      const params = (runtime.mutateConfigFile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(params.afterWrite).toEqual({ mode: 'auto' });
+
+      const draft: any = {};
+      params.mutate(draft);
+      const accounts = draft.channels.bitrix24.accounts;
+      expect(Array.isArray(accounts)).toBe(true);
+      const account = accounts.find((a: any) => a?.id === TEST_ACCOUNT_ID);
+      expect(account).toBeDefined();
+      expect(account.applicationToken).toBe('persisted-token');
+    });
+
+    it('captureApplicationToken upserts into an existing accounts array entry rather than duplicating it', () => {
+      channel.captureApplicationToken(TEST_ACCOUNT_ID, 'tok-1');
+      const params = (runtime.mutateConfigFile as ReturnType<typeof vi.fn>).mock.calls[0][0];
+
+      const draft: any = { channels: { bitrix24: { accounts: [{ id: TEST_ACCOUNT_ID, webhookUrl: TEST_WEBHOOK_URL }] } } };
+      params.mutate(draft);
+
+      expect(draft.channels.bitrix24.accounts).toHaveLength(1);
+      expect(draft.channels.bitrix24.accounts[0].applicationToken).toBe('tok-1');
+      expect(draft.channels.bitrix24.accounts[0].webhookUrl).toBe(TEST_WEBHOOK_URL);
+    });
+
+    it('warns and does not throw when the host does not support durable config writes', () => {
+      runtime.mutateConfigFile = undefined;
+
+      expect(() => channel.captureApplicationToken(TEST_ACCOUNT_ID, 'tok')).not.toThrow();
+      expect(channel.getApplicationToken(TEST_ACCOUNT_ID)).toBe('tok');
+      expect(runtime.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('not persisted'),
+      );
+    });
+  });
+
   // ── 5. probeAccount ──────────────────────────────────────────────────────
 
   describe('probeAccount', () => {

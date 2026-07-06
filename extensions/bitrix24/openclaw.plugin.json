@@ -49,6 +49,10 @@
             "clientId": { "type": "string", "description": "OAuth app clientId for token refresh" },
             "clientSecret": { "type": "string", "description": "OAuth app clientSecret for token refresh" },
             "expiresAt": { "type": "number", "description": "OAuth token expiry timestamp in unix ms" },
+            "applicationToken": {
+              "type": "string",
+              "description": "Internal: TOFU-pinned webhook authenticity token (top-level auth.application_token), captured from the first incoming webhook event. Managed by the plugin."
+            },
             "enabled": { "type": "boolean", "default": true },
             "textChunkLimit": { "type": "number", "default": 4000 },
             "dmPolicy": { "type": "string", "enum": ["open", "paired"], "default": "open" },
@@ -125,6 +129,10 @@
                 "clientId": { "type": "string", "description": "OAuth app clientId for token refresh" },
                 "clientSecret": { "type": "string", "description": "OAuth app clientSecret for token refresh" },
                 "expiresAt": { "type": "number", "description": "OAuth token expiry timestamp in unix ms" },
+                "applicationToken": {
+                  "type": "string",
+                  "description": "Internal: TOFU-pinned webhook authenticity token (top-level auth.application_token), captured from the first incoming webhook event. Managed by the plugin."
+                },
                 "enabled": { "type": "boolean", "default": true },
                 "textChunkLimit": { "type": "number", "default": 4000 },
                 "dmPolicy": { "type": "string", "enum": ["open", "paired"], "default": "open" },

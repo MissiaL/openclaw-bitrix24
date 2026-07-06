@@ -78,6 +78,7 @@ export class AccountManager {
         botId: raw.botId,
         botCode: raw.botCode,
         dmPolicy: raw.dmPolicy ?? 'open',
+        applicationToken: raw.applicationToken,
       };
 
       this.accounts.set(id, account);
@@ -176,6 +177,26 @@ export class AccountManager {
     }
   }
 
+  /**
+   * Get the TOFU-pinned application_token for an account, if any has been
+   * captured yet (in-memory; see `Bitrix24Channel.captureApplicationToken`
+   * for the durable-persist counterpart).
+   */
+  getApplicationToken(accountId: string): string | undefined {
+    return this.accounts.get(accountId)?.applicationToken;
+  }
+
+  /**
+   * Set the in-memory TOFU-pinned application_token for an account. No-ops
+   * if the account is unknown (mirrors `setBotInfo`).
+   */
+  setApplicationToken(accountId: string, token: string): void {
+    const account = this.accounts.get(accountId);
+    if (account) {
+      account.applicationToken = token;
+    }
+  }
+
   getRegisteredWebhookBase(accountId: string): string | undefined {
     return this.registeredWebhookBase.get(accountId);
   }
@@ -239,5 +260,6 @@ export interface RawChannelConfig {
     botId?: number;
     botCode?: string;
     dmPolicy?: 'open' | 'paired';
+    applicationToken?: string;
   }>;
 }

@@ -74,6 +74,12 @@ export interface AccountConfig {
   botId?: number;
   botCode?: string;
   dmPolicy: 'open' | 'paired';
+  /**
+   * TOFU-pinned webhook authenticity token (top-level `auth.application_token`,
+   * see `verifyApplicationToken` in receive.ts). Undefined until the first
+   * webhook event for this account is captured.
+   */
+  applicationToken?: string;
 }
 
 // ── Messages ─────────────────────────────────────────────────────────────────

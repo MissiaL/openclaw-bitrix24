@@ -7,12 +7,50 @@ export interface WebhookHandlers {
   onWelcome?: (accountId: string, event: ReturnType<typeof parseWelcomeEvent>) => void;
   onBotDelete?: (accountId: string, event: ReturnType<typeof parseBotDeleteEvent>) => void;
   getApplicationToken?: (accountId: string) => string | undefined;
+  /** Trust-on-first-use: pin a newly-seen application_token for an account. */
+  captureApplicationToken?: (accountId: string, token: string) => void;
 }
 
 /** Minimal shape needed to read `event` before dispatching to a typed parser. */
 interface WebhookBody {
   event?: string;
   auth?: { application_token?: string };
+}
+
+/**
+ * Authenticate an incoming event and, on trust-on-first-use, capture its
+ * token. Applied to EVERY event type (message/welcome/delete) — a forged
+ * event of any kind must be rejected once a token is pinned, and any event
+ * type may be the first one Bitrix24 happens to deliver.
+ *
+ * Security rationale: this webhook route is registered with `auth: 'plugin'`
+ * (no gateway token check — Bitrix24 cannot send one), so without this check
+ * anyone who learns the URL could inject forged events. TOFU pins the
+ * portal's `application_token` from the first real event for an account and
+ * rejects everything else that doesn't match (spec §7: the token is "not
+ * always present" — once pinned, an event that omits it is rejected, fail
+ * closed).
+ *
+ * Order: if no token is stored yet, capture whatever token (if any) this
+ * event carries and accept unconditionally (first-use trust). Otherwise,
+ * require an exact match via `verifyApplicationToken`.
+ */
+function authenticateAndCapture(
+  accountId: string,
+  body: WebhookBody,
+  handlers: WebhookHandlers,
+): boolean {
+  const stored = handlers.getApplicationToken?.(accountId);
+
+  if (stored === undefined) {
+    const token = body?.auth?.application_token;
+    if (token) {
+      handlers.captureApplicationToken?.(accountId, token);
+    }
+    return true;
+  }
+
+  return verifyApplicationToken(body, stored);
 }
 
 /**
@@ -40,8 +78,7 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
 
       switch (body?.event) {
         case 'ONIMBOTV2MESSAGEADD': {
-          const expectedToken = handlers.getApplicationToken?.(accountId);
-          if (!verifyApplicationToken(body, expectedToken)) {
+          if (!authenticateAndCapture(accountId, body, handlers)) {
             res.status(403).json({ error: 'Invalid application token' });
             return;
           }
@@ -54,6 +91,11 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
         }
 
         case 'ONIMBOTV2JOINCHAT': {
+          if (!authenticateAndCapture(accountId, body, handlers)) {
+            res.status(403).json({ error: 'Invalid application token' });
+            return;
+          }
+
           const event = parseWelcomeEvent(body as unknown as Bitrix24WelcomeEvent);
           if (event) {
             handlers.onWelcome?.(accountId, event);
@@ -62,6 +104,11 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
         }
 
         case 'ONIMBOTV2DELETE': {
+          if (!authenticateAndCapture(accountId, body, handlers)) {
+            res.status(403).json({ error: 'Invalid application token' });
+            return;
+          }
+
           const event = parseBotDeleteEvent(body as unknown as Bitrix24BotDeleteEvent);
           if (event) {
             handlers.onBotDelete?.(accountId, event);
