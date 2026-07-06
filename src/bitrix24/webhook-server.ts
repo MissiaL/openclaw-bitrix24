@@ -19,6 +19,16 @@ export interface WebhookHandlers {
    * with callers that don't wire account lookup.
    */
   hasAccount?: (accountId: string) => boolean;
+  /**
+   * Diagnostic logger for the raw inbound event, wired from `api.logger` in
+   * `extensions/bitrix24/src/index.ts`. Optional so existing callers (and
+   * tests) that don't pass one keep working unchanged. This is the key
+   * signal for live-tuning the real imbot.v2 payload shape against a
+   * production portal: every event is logged (truncated) before any
+   * parsing, so a human can see exactly what Bitrix24 actually sent even if
+   * parsing later fails or a field is missing.
+   */
+  logger?: { info: (msg: string, ...args: any[]) => void };
 }
 
 /** Minimal shape needed to read `event` before dispatching to a typed parser. */
@@ -86,6 +96,17 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
       const accountId = req.params.accountId as string;
       const body = req.body as WebhookBody;
 
+      // LIVE-TUNE diagnostic: log the raw event before any parsing/auth, so
+      // the real v2 payload shape is visible in production logs even when
+      // parsing later fails, returns null, or a field turns out to be named
+      // differently than expected.
+      handlers.logger?.info(
+        '[bitrix24-webhook] raw event=%s account=%s body=%s',
+        body?.event,
+        accountId,
+        JSON.stringify(body).slice(0, 2000),
+      );
+
       if (handlers.hasAccount && !handlers.hasAccount(accountId)) {
         res.status(404).json({ error: 'Unknown account' });
         return;
@@ -138,7 +159,16 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
 
       res.json({ success: true });
     } catch (err) {
-      console.error('[bitrix24-webhook] error:', err);
+      // Body may be unavailable/unparsed at this point in truly pathological
+      // cases (e.g. express itself failed) — guard the stringify so the
+      // error log never throws a second error.
+      let rawBody = '<unavailable>';
+      try {
+        rawBody = JSON.stringify(req.body).slice(0, 2000);
+      } catch {
+        // ignore — keep the placeholder
+      }
+      console.error('[bitrix24-webhook] error:', err, 'body:', rawBody);
       res.status(500).json({ error: 'Internal error' });
     }
   });

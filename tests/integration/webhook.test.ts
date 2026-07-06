@@ -608,4 +608,39 @@ describe('createWebhookApp', () => {
       await stopServer(server);
     }
   });
+
+  // ── Raw-event diagnostic logging (LIVE-TUNE support) ────────────────────
+
+  it('logs the raw event via handlers.logger when one is provided', async () => {
+    const onMessage = vi.fn();
+    const logger = { info: vi.fn() };
+    const app = createWebhookApp({ onMessage, logger });
+    const { server, baseUrl } = await startServer(app);
+    try {
+      const event = makeMessageEvent({ text: 'Ping!' });
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, event);
+
+      expect(res.status).toBe(200);
+      expect(logger.info).toHaveBeenCalledOnce();
+      const [fmt, loggedEvent, loggedAccountId, loggedBody] = logger.info.mock.calls[0];
+      expect(fmt).toContain('raw event=');
+      expect(loggedEvent).toBe('ONIMBOTV2MESSAGEADD');
+      expect(loggedAccountId).toBe(ACCOUNT_ID);
+      expect(loggedBody).toContain('Ping!');
+    } finally {
+      await stopServer(server);
+    }
+  });
+
+  it('does not throw when no logger is provided (backward compatible)', async () => {
+    const onMessage = vi.fn();
+    const app = createWebhookApp({ onMessage });
+    const { server, baseUrl } = await startServer(app);
+    try {
+      const res = await post(baseUrl, `/webhook/bitrix24/${ACCOUNT_ID}`, makeMessageEvent());
+      expect(res.status).toBe(200);
+    } finally {
+      await stopServer(server);
+    }
+  });
 });

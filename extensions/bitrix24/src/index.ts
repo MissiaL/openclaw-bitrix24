@@ -1,6 +1,7 @@
 import { Bitrix24Channel } from './channel.js';
 import { setBitrix24Runtime } from './runtime.js';
 import { persistConfigValue, type ConfigMutator } from './persist.js';
+import { wireInboundDispatch } from './inbound-dispatch.js';
 import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
 import { resolvePublicUrl } from './public-url.js';
@@ -44,6 +45,12 @@ export default function register(api: any): void {
   // Configure channel from user's openclaw config
   const channelConfig = api.config?.channels?.bitrix24 ?? {};
   channel.configure(channelConfig);
+
+  // Wire inbound -> agent dispatch. Must happen before any webhook event can
+  // arrive, so it is done here in register(), right after the channel is
+  // configured (channel.onMessage sets messageCallback, which
+  // handleIncomingMessage below relies on).
+  wireInboundDispatch(api, channel);
 
   // Wire OAuth token persistence.
   // `channels.bitrix24.accounts` is an array of account objects (see
@@ -149,6 +156,9 @@ export default function register(api: any): void {
     getApplicationToken: (accountId: string) => channel.getApplicationToken(accountId),
     captureApplicationToken: (accountId: string, token: string) => channel.captureApplicationToken(accountId, token),
     hasAccount: (accountId: string) => channel.hasAccount(accountId),
+    // Diagnostic logging: the key signal for tomorrow's live tuning of the
+    // real imbot.v2 payload shape.
+    logger: api.logger,
   });
 
   // Modern SDK (2026.4+): raw Node handler mounted by the gateway.
