@@ -7,6 +7,11 @@
 
 Channel plugin and skill that connect your OpenClaw AI agent to Bitrix24. Users chat with the agent through Bitrix24 Messenger, and the agent can manage CRM, tasks, calendar, drive, and messaging on their behalf.
 
+## Requirements
+
+- **openclaw >= 2026.4** to use the modern webhook route (`api.registerHttpRoute`, mounted under `/webhook/bitrix24/` with plugin auth -- Bitrix24 cannot send a gateway token, so this route opts out of gateway auth).
+- On older hosts, the plugin falls back to the legacy `registerService.router` mount, so it keeps working without the modern route -- just without plugin-scoped auth.
+
 ## Quick Start
 
 ### 1. Install the plugin
@@ -61,6 +66,23 @@ channels:
     webhookUrl: "https://your-portal.bitrix24.ru/rest/1/abc123def/"
 ```
 
+### Public URL (event handlers)
+
+Bitrix24 calls back into your bot over HTTP (`imbot.register`/`imbot.update` event URLs), so the plugin needs to know the externally reachable base URL of your gateway. It resolves this in order:
+
+1. `channels.bitrix24.publicUrl` (config)
+2. `BITRIX24_PUBLIC_URL` environment variable
+3. `gateway.externalUrl` (legacy, removed from the config schema in openclaw 2026.6 -- kept as a fallback for older hosts)
+4. `http://localhost:18789` (local default)
+
+Set it with:
+
+```bash
+openclaw config set channels.bitrix24.publicUrl https://bot.example.com
+```
+
+If `publicUrl` changes after the bot is already registered, the plugin detects the change on the next startup and calls `imbot.update` to re-point `EVENT_MESSAGE_ADD`, `EVENT_WELCOME_MESSAGE`, and `EVENT_BOT_DELETE` at the new base -- no manual re-registration needed. The last base registered per account is tracked internally under `channels.bitrix24.registeredWebhookBase.<accountId>`; this key is managed by the plugin and should not be edited by hand.
+
 ### Option B: Multi-account / OAuth
 
 ```yaml
@@ -93,6 +115,8 @@ channels:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `publicUrl` | string | see resolution chain above | Externally reachable base URL used for Bitrix24 event handlers |
+| `registeredWebhookBase.<accountId>` | string | auto | Internal -- last `publicUrl` registered per account. Managed by the plugin; do not edit. |
 | `webhookUrl` | string | -- | Bitrix24 inbound webhook URL |
 | `accounts[].id` | string | `"default"` | Unique account identifier |
 | `accounts[].domain` | string | auto | Portal domain (extracted from webhook URL) |
@@ -192,9 +216,10 @@ openclaw-bitrix24/
       index.ts                   #   Plugin entry point (register channels, services, commands)
       channel.ts                 #   Bitrix24Channel class (messaging, lifecycle)
       runtime.ts                 #   Runtime DI (logger, config)
+      public-url.ts              #   Resolve externally reachable base URL for event handlers
   src/bitrix24/                  # Core library
     accounts.ts                  #   Multi-account manager
-    bot.ts                       #   Bot registration / unregistration (imbot.register)
+    bot.ts                       #   Bot registration / unregistration / event URL updates (imbot.register, imbot.update)
     client.ts                    #   Bitrix24 REST API client with rate limiter
     files.ts                     #   File upload (disk) and download
     format.ts                    #   Markdown <-> BB-code conversion
@@ -223,7 +248,7 @@ openclaw-bitrix24/
 
 ### Prerequisites
 
-- Node.js >= 18
+- Node.js >= 20 (required by the published `@openclaw/bitrix24` package; see `engines` in `extensions/bitrix24/package.json`)
 - npm
 
 ### Setup
@@ -233,6 +258,32 @@ git clone https://github.com/rsvbitrix/openclaw-bitrix24.git
 cd channel-bitrix24
 npm install
 ```
+
+### Installing from a working copy
+
+Two ways to run the plugin from this repo without publishing to npm:
+
+- **Dev (TypeScript sources loaded directly):** add the plugin directory to `plugins.load.paths` in your OpenClaw config, e.g.:
+
+  ```yaml
+  plugins:
+    load:
+      paths:
+        - /path/to/openclaw-bitrix24/extensions/bitrix24
+  ```
+
+  OpenClaw resolves the entry point from `openclaw.extensions` in `extensions/bitrix24/package.json` (`./src/index.ts`) and runs the TypeScript source directly -- no build step needed. Requires openclaw >= 2026.4 for the modern webhook route (see below); on older hosts the legacy router still works.
+
+- **Prod (compiled build, installed like a published package):**
+
+  ```bash
+  cd extensions/bitrix24
+  npm install
+  npm run build
+  openclaw plugins install .
+  ```
+
+  This builds `dist/` and installs the plugin from the compiled entry declared in `openclaw.runtimeExtensions` (`./dist/extensions/bitrix24/src/index.js`).
 
 ### Build
 
@@ -282,8 +333,8 @@ The Bitrix24 webhook or OAuth app needs these scopes:
 
 ### Messages are not received
 
-- The agent must be reachable from the internet. Bitrix24 sends `POST` requests to your webhook endpoint at `{externalUrl}/webhook/bitrix24/{accountId}/message`.
-- Check that `gateway.externalUrl` in your OpenClaw config is a publicly accessible HTTPS URL.
+- The agent must be reachable from the internet. Bitrix24 sends `POST` requests to your webhook endpoint at `{publicUrl}/webhook/bitrix24/{accountId}/message`.
+- Check that `channels.bitrix24.publicUrl` (or `BITRIX24_PUBLIC_URL`) resolves to a publicly accessible HTTPS URL. See [Public URL (event handlers)](#public-url-event-handlers).
 - Verify the webhook URL in Bitrix24 is not expired or revoked.
 
 ### Rate limit errors (`QUERY_LIMIT_EXCEEDED`)

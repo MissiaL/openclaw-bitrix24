@@ -4,11 +4,28 @@
 
 Bitrix24 channel plugin for [OpenClaw](https://github.com/openclaw/openclaw) — chat with your AI agent through Bitrix24 Messenger.
 
+## Requirements
+
+- openclaw >= 2026.4 to use the modern webhook route (`api.registerHttpRoute`, plugin-authenticated). Older hosts fall back to the legacy `registerService.router` mount automatically.
+- Node.js >= 20 (published package `engines`).
+
 ## Install
 
 ```bash
 openclaw plugins install @openclaw/bitrix24
 ```
+
+### Installing from source
+
+- **Dev** — add this directory to `plugins.load.paths` in your OpenClaw config; the TypeScript entry (`src/index.ts`) is loaded directly, no build step needed.
+- **Prod** — build and install the compiled package:
+
+  ```bash
+  cd extensions/bitrix24
+  npm install
+  npm run build
+  openclaw plugins install .
+  ```
 
 ## Quick Setup
 
@@ -27,6 +44,17 @@ openclaw start
 ```
 
 The bot appears in Bitrix24 Messenger automatically.
+
+## Public URL
+
+The plugin needs your gateway's externally reachable base URL for Bitrix24's event handlers (`EVENT_MESSAGE_ADD`, `EVENT_WELCOME_MESSAGE`, `EVENT_BOT_DELETE`). Resolution order:
+
+1. `channels.bitrix24.publicUrl` (config) — set with `openclaw config set channels.bitrix24.publicUrl https://bot.example.com`
+2. `BITRIX24_PUBLIC_URL` env var
+3. `gateway.externalUrl` (legacy fallback, for older hosts)
+4. `http://localhost:18789`
+
+If `publicUrl` changes, the plugin calls `imbot.update` on the next startup to re-point the bot's event URLs automatically — no manual re-registration needed. The last registered base is tracked per account under `channels.bitrix24.registeredWebhookBase.<accountId>`; this is an internal, plugin-managed key — don't edit it by hand.
 
 ## Multi-Account / OAuth
 
