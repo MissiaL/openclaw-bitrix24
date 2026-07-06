@@ -2,6 +2,7 @@ import { Bitrix24Channel } from './channel.js';
 import { setBitrix24Runtime, type PluginRuntime } from './runtime.js';
 import { createWebhookRouter } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
+import { resolvePublicUrl } from './public-url.js';
 import {
   getSetupInstructions,
   getQuickHint,
@@ -28,7 +29,7 @@ export default function register(api: any): void {
   setBitrix24Runtime({
     logger: api.logger,
     config: api.config,
-    webhookBaseUrl: api.config?.gateway?.externalUrl ?? 'http://localhost:18789',
+    webhookBaseUrl: resolvePublicUrl(api.config),
   });
 
   // Configure channel from user's openclaw config
