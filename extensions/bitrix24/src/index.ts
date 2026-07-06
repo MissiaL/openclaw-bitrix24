@@ -30,6 +30,9 @@ export default function register(api: any): void {
     logger: api.logger,
     config: api.config,
     webhookBaseUrl: resolvePublicUrl(api.config),
+    persistRegisteredBase: (accountId: string, base: string) => {
+      api.persistConfig?.(`channels.bitrix24.registeredWebhookBase.${accountId}`, base);
+    },
   });
 
   // Configure channel from user's openclaw config

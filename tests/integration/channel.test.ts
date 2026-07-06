@@ -40,6 +40,7 @@ function createMockRuntime(): PluginRuntime {
     },
     config: {},
     webhookBaseUrl: TEST_WEBHOOK_BASE_URL,
+    persistRegisteredBase: vi.fn(),
   };
 }
 
@@ -182,6 +183,90 @@ describe('Bitrix24Channel integration', () => {
     it('should throw if account does not exist', async () => {
       await expect(channel.startupAccount('nonexistent')).rejects.toThrow(
         'Account "nonexistent" not found',
+      );
+    });
+  });
+
+  describe('startupAccount webhook base tracking', () => {
+    const BOT_ID = 42;
+
+    it('calls imbot.update when the public URL changed since registration', async () => {
+      runtime.webhookBaseUrl = 'https://new.example';
+
+      const trackingChannel = new Bitrix24Channel();
+      trackingChannel.configure({
+        registeredWebhookBase: { [TEST_ACCOUNT_ID]: 'https://old.example' },
+        accounts: [
+          {
+            id: TEST_ACCOUNT_ID,
+            webhookUrl: TEST_WEBHOOK_URL,
+            domain: 'test-portal.bitrix24.ru',
+            botId: BOT_ID,
+            botCode: `openclaw_${TEST_ACCOUNT_ID}`,
+            bot: { name: 'Test Bot', color: 'PURPLE', workPosition: 'Test Assistant' },
+          },
+        ],
+      });
+
+      mockApiResponse('imbot.update', true);
+
+      await trackingChannel.startupAccount(TEST_ACCOUNT_ID);
+
+      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.update');
+      expect(updateCall).toBeDefined();
+      expect(updateCall![1]).toEqual({
+        CLIENT_ID: TEST_BOT_CLIENT_ID,
+        BOT_ID,
+        FIELDS: {
+          EVENT_MESSAGE_ADD: `https://new.example/webhook/bitrix24/${TEST_ACCOUNT_ID}/message`,
+          EVENT_WELCOME_MESSAGE: `https://new.example/webhook/bitrix24/${TEST_ACCOUNT_ID}/welcome`,
+          EVENT_BOT_DELETE: `https://new.example/webhook/bitrix24/${TEST_ACCOUNT_ID}/delete`,
+        },
+      });
+
+      expect(runtime.persistRegisteredBase).toHaveBeenCalledWith(TEST_ACCOUNT_ID, 'https://new.example');
+
+      trackingChannel.destroy();
+    });
+
+    it('does not call imbot.update when the base is unchanged', async () => {
+      runtime.webhookBaseUrl = 'https://same.example';
+
+      const trackingChannel = new Bitrix24Channel();
+      trackingChannel.configure({
+        registeredWebhookBase: { [TEST_ACCOUNT_ID]: 'https://same.example' },
+        accounts: [
+          {
+            id: TEST_ACCOUNT_ID,
+            webhookUrl: TEST_WEBHOOK_URL,
+            domain: 'test-portal.bitrix24.ru',
+            botId: BOT_ID,
+            botCode: `openclaw_${TEST_ACCOUNT_ID}`,
+            bot: { name: 'Test Bot', color: 'PURPLE', workPosition: 'Test Assistant' },
+          },
+        ],
+      });
+
+      await trackingChannel.startupAccount(TEST_ACCOUNT_ID);
+
+      const updateCall = mockPost.mock.calls.find((call) => call[0] === '/imbot.update');
+      expect(updateCall).toBeUndefined();
+      expect(runtime.persistRegisteredBase).not.toHaveBeenCalled();
+      expect(runtime.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('already registered'),
+      );
+
+      trackingChannel.destroy();
+    });
+
+    it('persists the base after fresh registration', async () => {
+      mockApiResponse('imbot.register', BOT_ID);
+
+      await channel.startupAccount(TEST_ACCOUNT_ID);
+
+      expect(runtime.persistRegisteredBase).toHaveBeenCalledWith(
+        TEST_ACCOUNT_ID,
+        TEST_WEBHOOK_BASE_URL,
       );
     });
   });

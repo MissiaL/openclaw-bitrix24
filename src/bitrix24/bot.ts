@@ -66,6 +66,28 @@ export async function updateBot(
 }
 
 /**
+ * Point an already-registered bot's event handlers at a new public base URL.
+ *
+ * imbot.register with an existing CODE returns the existing BOT_ID but does
+ * NOT refresh event URLs, so a publicUrl change requires an explicit update.
+ */
+export async function updateBotEventUrls(
+  client: Bitrix24Client,
+  params: { botId: number; botClientId: string; accountId: string; webhookBaseUrl: string },
+): Promise<void> {
+  const base = params.webhookBaseUrl.replace(/\/$/, '');
+  await client.callMethod('imbot.update', {
+    CLIENT_ID: params.botClientId,
+    BOT_ID: params.botId,
+    FIELDS: {
+      EVENT_MESSAGE_ADD: `${base}/webhook/bitrix24/${params.accountId}/message`,
+      EVENT_WELCOME_MESSAGE: `${base}/webhook/bitrix24/${params.accountId}/welcome`,
+      EVENT_BOT_DELETE: `${base}/webhook/bitrix24/${params.accountId}/delete`,
+    },
+  });
+}
+
+/**
  * Unregister (delete) the bot from Bitrix24.
  */
 export async function unregisterBot(

@@ -12,6 +12,7 @@ export interface PluginRuntime {
   };
   config: Record<string, any>;
   webhookBaseUrl: string;
+  persistRegisteredBase?: (accountId: string, base: string) => void;
 }
 
 let _runtime: PluginRuntime | null = null;

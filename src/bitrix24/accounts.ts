@@ -18,6 +18,7 @@ function deriveBotClientId(auth: BitrixAuth, explicitClientId?: string): string 
 export class AccountManager {
   private accounts = new Map<string, AccountConfig>();
   private clients = new Map<string, Bitrix24Client>();
+  private registeredWebhookBase = new Map<string, string>();
   private tokenRefreshCallback?: (accountId: string, tokens: {
     accessToken: string;
     refreshToken: string;
@@ -28,6 +29,8 @@ export class AccountManager {
    * Load accounts from OpenClaw channel config.
    */
   loadFromConfig(config: RawChannelConfig): void {
+    this.registeredWebhookBase = new Map(Object.entries(config.registeredWebhookBase ?? {}));
+
     const globalWebhookUrl = config.webhookUrl;
 
     for (const raw of config.accounts ?? []) {
@@ -165,6 +168,14 @@ export class AccountManager {
     }
   }
 
+  getRegisteredWebhookBase(accountId: string): string | undefined {
+    return this.registeredWebhookBase.get(accountId);
+  }
+
+  setRegisteredWebhookBase(accountId: string, base: string): void {
+    this.registeredWebhookBase.set(accountId, base);
+  }
+
   /**
    * Find account by bot code (for routing incoming events).
    */
@@ -204,6 +215,7 @@ export interface RawChannelConfig {
   webhookUrl?: string;
   clientId?: string;
   clientSecret?: string;
+  registeredWebhookBase?: Record<string, string>;
   accounts?: Array<{
     id?: string;
     domain?: string;

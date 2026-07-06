@@ -1,5 +1,5 @@
 import { AccountManager, type RawChannelConfig } from '../../../src/bitrix24/accounts.js';
-import { registerBot, unregisterBot } from '../../../src/bitrix24/bot.js';
+import { registerBot, unregisterBot, updateBotEventUrls } from '../../../src/bitrix24/bot.js';
 import { sendMessage } from '../../../src/bitrix24/send.js';
 import { downloadFile } from '../../../src/bitrix24/files.js';
 import type { IncomingMessage, MediaAttachment } from '../../../src/bitrix24/types.js';
@@ -120,10 +120,28 @@ export class Bitrix24Channel {
     if (!account) throw new Error(`Account "${accountId}" not found`);
 
     const client = this.accountManager.getClient(accountId);
+    const base = runtime.webhookBaseUrl.replace(/\/$/, '');
 
-    // Check if bot is already registered
+    // Bot already registered: re-point event URLs if the public base changed.
     if (account.botId) {
-      runtime.logger.info(`Bitrix24 bot already registered for "${accountId}" (ID: ${account.botId})`);
+      const registered = this.accountManager.getRegisteredWebhookBase(accountId)?.replace(/\/$/, '');
+      if (registered !== base) {
+        if (!account.bot.clientId) {
+          runtime.logger.warn(`Bitrix24 public URL changed for "${accountId}" but bot CLIENT_ID is missing; event URLs not updated`);
+          return;
+        }
+        runtime.logger.info(`Bitrix24 public URL changed for "${accountId}" (${registered ?? 'unknown'} -> ${base}); updating bot event URLs...`);
+        await updateBotEventUrls(client, {
+          botId: account.botId,
+          botClientId: account.bot.clientId,
+          accountId,
+          webhookBaseUrl: base,
+        });
+        this.accountManager.setRegisteredWebhookBase(accountId, base);
+        runtime.persistRegisteredBase?.(accountId, base);
+      } else {
+        runtime.logger.info(`Bitrix24 bot already registered for "${accountId}" (ID: ${account.botId})`);
+      }
       return;
     }
 
@@ -140,6 +158,8 @@ export class Bitrix24Channel {
     );
 
     this.accountManager.setBotInfo(accountId, botId, botCode);
+    this.accountManager.setRegisteredWebhookBase(accountId, base);
+    runtime.persistRegisteredBase?.(accountId, base);
     runtime.logger.info(`Bitrix24 bot registered: ${botCode} (ID: ${botId})`);
   }
 
