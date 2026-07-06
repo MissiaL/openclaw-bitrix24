@@ -9,10 +9,17 @@ export function resolvePublicUrl(
   config: Record<string, any> | undefined,
   env: Record<string, string | undefined> = process.env,
 ): string {
+  // Use `||` (not `??`) so an empty/whitespace-only string at any tier falls
+  // through to the next one instead of winning and producing relative URLs.
   const url =
-    config?.channels?.bitrix24?.publicUrl ??
-    env.BITRIX24_PUBLIC_URL ??
-    config?.gateway?.externalUrl ??
+    normalize(config?.channels?.bitrix24?.publicUrl) ||
+    normalize(env.BITRIX24_PUBLIC_URL) ||
+    normalize(config?.gateway?.externalUrl) ||
     'http://localhost:18789';
-  return String(url).replace(/\/$/, '');
+  return url.replace(/\/$/, '');
+}
+
+function normalize(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
 }

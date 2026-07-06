@@ -29,4 +29,11 @@ describe('resolvePublicUrl', () => {
       { channels: { bitrix24: { publicUrl: 'https://a.example/' } } }, {},
     )).toBe('https://a.example');
   });
+
+  it('falls through to gateway.externalUrl when publicUrl is an empty string', () => {
+    expect(resolvePublicUrl(
+      { channels: { bitrix24: { publicUrl: '' } }, gateway: { externalUrl: 'https://b.example' } },
+      {},
+    )).toBe('https://b.example');
+  });
 });

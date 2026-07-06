@@ -153,7 +153,7 @@ export class Bitrix24Channel {
     const { botId, botCode } = await registerBot(
       client,
       accountId,
-      runtime.webhookBaseUrl,
+      base,
       account.bot,
     );
 
