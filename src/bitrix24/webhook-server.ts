@@ -9,74 +9,74 @@ export interface WebhookHandlers {
   getApplicationToken?: (accountId: string) => string | undefined;
 }
 
+/** Minimal shape needed to read `event` before dispatching to a typed parser. */
+interface WebhookBody {
+  event?: string;
+  auth?: { application_token?: string };
+}
+
 /**
- * Create an Express router for receiving Bitrix24 webhook events.
+ * Create an Express router for receiving Bitrix24 imbot.v2 webhook events.
  *
- * Routes:
- *   POST /webhook/bitrix24/:accountId/message  — ONIMBOTMESSAGEADD
- *   POST /webhook/bitrix24/:accountId/welcome  — ONIMJOINCHAT
- *   POST /webhook/bitrix24/:accountId/delete   — ONIMBOTDELETE
+ * Route:
+ *   POST /webhook/bitrix24/:accountId — single endpoint for ALL events.
+ *   Bitrix24 posts every ONIMBOTV2* event here (registered via
+ *   `imbot.v2.Bot.register`/`Bot.update` with `eventMode: webhook`); this
+ *   dispatches by `req.body.event`:
+ *     ONIMBOTV2MESSAGEADD -> onMessage
+ *     ONIMBOTV2JOINCHAT   -> onWelcome
+ *     ONIMBOTV2DELETE     -> onBotDelete
+ *   Any other/unknown event is acknowledged with 200 {success:true} and
+ *   otherwise ignored (e.g. ONIMBOTV2MESSAGEUPDATE/ONIMBOTV2MESSAGEDELETE,
+ *   which this bot does not yet act on).
  */
 export function createWebhookRouter(handlers: WebhookHandlers): Router {
   const router = Router();
 
-  // ONIMBOTMESSAGEADD
-  router.post('/webhook/bitrix24/:accountId/message', (req: Request, res: Response) => {
+  router.post('/webhook/bitrix24/:accountId', (req: Request, res: Response) => {
     try {
       const accountId = req.params.accountId as string;
-      const body = req.body as Bitrix24MessageEvent;
+      const body = req.body as WebhookBody;
 
-      // Verify application token
-      const expectedToken = handlers.getApplicationToken?.(accountId);
-      if (!verifyApplicationToken(body, expectedToken)) {
-        res.status(403).json({ error: 'Invalid application token' });
-        return;
-      }
+      switch (body?.event) {
+        case 'ONIMBOTV2MESSAGEADD': {
+          const expectedToken = handlers.getApplicationToken?.(accountId);
+          if (!verifyApplicationToken(body, expectedToken)) {
+            res.status(403).json({ error: 'Invalid application token' });
+            return;
+          }
 
-      const msg = parseMessageEvent(body);
-      if (msg) {
-        handlers.onMessage(accountId, msg);
+          const msg = parseMessageEvent(body as unknown as Bitrix24MessageEvent);
+          if (msg) {
+            handlers.onMessage(accountId, msg);
+          }
+          break;
+        }
+
+        case 'ONIMBOTV2JOINCHAT': {
+          const event = parseWelcomeEvent(body as unknown as Bitrix24WelcomeEvent);
+          if (event) {
+            handlers.onWelcome?.(accountId, event);
+          }
+          break;
+        }
+
+        case 'ONIMBOTV2DELETE': {
+          const event = parseBotDeleteEvent(body as unknown as Bitrix24BotDeleteEvent);
+          if (event) {
+            handlers.onBotDelete?.(accountId, event);
+          }
+          break;
+        }
+
+        default:
+          // Unknown/unhandled event — ack and ignore.
+          break;
       }
 
       res.json({ success: true });
     } catch (err) {
-      console.error('[bitrix24-webhook] message error:', err);
-      res.status(500).json({ error: 'Internal error' });
-    }
-  });
-
-  // ONIMJOINCHAT (welcome)
-  router.post('/webhook/bitrix24/:accountId/welcome', (req: Request, res: Response) => {
-    try {
-      const accountId = req.params.accountId as string;
-      const body = req.body as Bitrix24WelcomeEvent;
-
-      const event = parseWelcomeEvent(body);
-      if (event) {
-        handlers.onWelcome?.(accountId, event);
-      }
-
-      res.json({ success: true });
-    } catch (err) {
-      console.error('[bitrix24-webhook] welcome error:', err);
-      res.status(500).json({ error: 'Internal error' });
-    }
-  });
-
-  // ONIMBOTDELETE
-  router.post('/webhook/bitrix24/:accountId/delete', (req: Request, res: Response) => {
-    try {
-      const accountId = req.params.accountId as string;
-      const body = req.body as Bitrix24BotDeleteEvent;
-
-      const event = parseBotDeleteEvent(body);
-      if (event) {
-        handlers.onBotDelete?.(accountId, event);
-      }
-
-      res.json({ success: true });
-    } catch (err) {
-      console.error('[bitrix24-webhook] delete error:', err);
+      console.error('[bitrix24-webhook] error:', err);
       res.status(500).json({ error: 'Internal error' });
     }
   });

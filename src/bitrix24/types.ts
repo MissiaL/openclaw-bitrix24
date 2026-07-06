@@ -147,78 +147,139 @@ export interface KeyboardMarkup {
   buttons: KeyboardButton[][];
 }
 
-// ── Bitrix24 Event Payloads ──────────────────────────────────────────────────
+// ── Bitrix24 imbot.v2 Event Payloads ─────────────────────────────────────────
+//
+// v2 webhook events (ONIMBOTV2*) use nested camelCase keys (no more UPPER_CASE
+// PARAMS blocks). Delivered as `application/x-www-form-urlencoded` via PHP's
+// http_build_query, so in webhook mode EVERY scalar arrives as a string:
+// integers like `789`, booleans as `"1"`/`"0"`, null as `""` (spec §7). These
+// interfaces model that webhook-mode shape (string-typed scalars); parsers in
+// receive.ts coerce fields into the numeric types `IncomingMessage` expects.
 
-export interface Bitrix24MessageEvent {
-  event: 'ONIMBOTMESSAGEADD';
-  data: {
-    BOT: Array<{
-      BOT_ID: number;
-      BOT_CODE: string;
-    }>;
-    PARAMS: {
-      DIALOG_ID: string;
-      MESSAGE_ID: number;
-      MESSAGE: string;
-      FILES?: Array<{
-        id: string;
-        name: string;
-        size: number;
-        type: string;
-      }>;
-      FROM_USER_ID: number;
-      TO_USER_ID: number;
-      TO_CHAT_ID?: number;
-      CHAT_TYPE: ChatType;
-      LANGUAGE: string;
-    };
-    USER: {
-      ID: number;
-      NAME: string;
-      FIRST_NAME: string;
-      LAST_NAME: string;
-      WORK_POSITION?: string;
-      IS_BOT: 'Y' | 'N';
-    };
-  };
-  ts: number;
+/** Bot object as it appears nested in v2 webhook event payloads. */
+export interface Bitrix24V2EventBot {
+  id: string;
+  code: string;
+  /**
+   * OAuth-style token bundle for making REST calls back as the bot. Not
+   * always present — Bitrix24 omits it when the triggering hit couldn't be
+   * linked to a specific user (spec §7). Distinct from the top-level `auth`
+   * used to verify webhook authenticity (see `verifyApplicationToken`).
+   */
   auth?: {
     access_token?: string;
-    domain: string;
+    refresh_token?: string;
     application_token?: string;
+    domain?: string;
+    expires_in?: string;
+    scope?: string;
+    server_endpoint?: string;
+    status?: string;
+    client_endpoint?: string;
+    member_id?: string;
   };
+}
+
+export interface Bitrix24V2EventMessage {
+  id: string;
+  chatId: string;
+  /** `"0"` = system message. */
+  authorId: string;
+  date?: string;
+  text: string;
+  isSystem?: string;
+  uuid?: string;
+  forward?: { id: string; userId: string; chatId: string; date: string } | null;
+  /**
+   * "Additional parameters: attach, keyboard, files, and others" per the
+   * docs — no exact sub-schema for `params.files` is documented anywhere in
+   * the v2 API (spec §11, marked UNVERIFIABLE). Left untyped/unparsed here.
+   */
+  params?: Record<string, unknown>;
+  viewedByOthers?: string;
+}
+
+export interface Bitrix24V2EventChat {
+  id: string;
+  /** `chat5`-style for groups, bare `{userId}` for private (P2P) dialogs. */
+  dialogId: string;
+  type: string; // 'chat' | 'open' | 'channel' | 'openChannel' | 'copilot' | 'thread' | 'generalChannel'
+  name?: string;
+  entityType?: string;
+  owner?: string;
+  avatar?: string;
+  color?: string;
+}
+
+export interface Bitrix24V2EventUser {
+  id: string;
+  active?: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  workPosition?: string;
+  color?: string;
+  avatar?: string;
+  gender?: string;
+  birthday?: string;
+  extranet?: string;
+  /** `"1"`/`"0"` — true when the message author is itself a bot. */
+  bot?: string;
+  connector?: string;
+  externalAuthId?: string;
+  status?: string;
+  idle?: string;
+  lastActivityDate?: string;
+  absent?: string;
+  departments?: string[];
+  phones?: string;
+  type?: string;
+}
+
+/**
+ * Top-level `auth` object — sibling of `event`/`data`/`ts`, always present.
+ * Used to verify webhook authenticity via `auth.application_token`
+ * (snake_case; distinct from `data.bot.auth`, see `verifyApplicationToken`).
+ */
+export interface Bitrix24V2TopLevelAuth {
+  domain: string;
+  application_token?: string;
+}
+
+export interface Bitrix24MessageEvent {
+  event: 'ONIMBOTV2MESSAGEADD';
+  data: {
+    bot: Bitrix24V2EventBot;
+    message: Bitrix24V2EventMessage;
+    chat: Bitrix24V2EventChat;
+    user: Bitrix24V2EventUser;
+    language?: string;
+  };
+  ts?: string;
+  auth?: Bitrix24V2TopLevelAuth;
 }
 
 export interface Bitrix24WelcomeEvent {
-  event: 'ONIMJOINCHAT';
+  event: 'ONIMBOTV2JOINCHAT';
   data: {
-    BOT: Array<{
-      BOT_ID: number;
-      BOT_CODE: string;
-    }>;
-    PARAMS: {
-      DIALOG_ID: string;
-      CHAT_TYPE: ChatType;
-      USER_ID: number;
-    };
+    bot: Bitrix24V2EventBot;
+    dialogId?: string;
+    chat?: Bitrix24V2EventChat;
+    user?: Bitrix24V2EventUser;
+    language?: string;
   };
-  auth?: {
-    domain: string;
-    application_token?: string;
-  };
+  ts?: string;
+  auth?: Bitrix24V2TopLevelAuth;
 }
 
+/** "The last event the bot will receive." Payload is just `{bot: {...}}` — no chat/user/message/language (spec §10). */
 export interface Bitrix24BotDeleteEvent {
-  event: 'ONIMBOTDELETE';
+  event: 'ONIMBOTV2DELETE';
   data: {
-    BOT: Array<{
-      BOT_ID: number;
-      BOT_CODE: string;
-    }>;
+    bot: Bitrix24V2EventBot;
   };
-  auth?: {
-    domain: string;
-  };
+  ts?: string;
+  auth?: Bitrix24V2TopLevelAuth;
 }
 
 // ── REST API Response ────────────────────────────────────────────────────────
