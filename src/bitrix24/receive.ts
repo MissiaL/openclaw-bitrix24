@@ -130,7 +130,9 @@ export function verifyApplicationToken(
   event: { auth?: { application_token?: string } },
   expectedToken: string | undefined,
 ): boolean {
-  // If no expected token stored, skip verification
-  if (!expectedToken) return true;
+  // No token pinned yet (undefined/null) => accept (TOFU bootstrap). A
+  // pinned token — including the degenerate empty string '' — must match
+  // exactly; treating '' as "no token" would fail open for every event.
+  if (expectedToken === undefined || expectedToken === null) return true;
   return event.auth?.application_token === expectedToken;
 }

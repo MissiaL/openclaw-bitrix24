@@ -201,4 +201,8 @@ describe('verifyApplicationToken', () => {
   it('fails CLOSED when a token is pinned but the event auth block omits application_token', () => {
     expect(verifyApplicationToken({ auth: {} }, 'pinned-token')).toBe(false);
   });
+
+  it('does not fail open when the pinned token is an empty string (TOFU fail-open guard)', () => {
+    expect(verifyApplicationToken({ auth: { application_token: 'abc' } }, '')).toBe(false);
+  });
 });

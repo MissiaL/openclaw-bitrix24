@@ -51,6 +51,7 @@
             "expiresAt": { "type": "number", "description": "OAuth token expiry timestamp in unix ms" },
             "applicationToken": {
               "type": "string",
+              "minLength": 1,
               "description": "Internal: TOFU-pinned webhook authenticity token (top-level auth.application_token), captured from the first incoming webhook event. Managed by the plugin."
             },
             "enabled": { "type": "boolean", "default": true },
@@ -131,6 +132,7 @@
                 "expiresAt": { "type": "number", "description": "OAuth token expiry timestamp in unix ms" },
                 "applicationToken": {
                   "type": "string",
+                  "minLength": 1,
                   "description": "Internal: TOFU-pinned webhook authenticity token (top-level auth.application_token), captured from the first incoming webhook event. Managed by the plugin."
                 },
                 "enabled": { "type": "boolean", "default": true },
