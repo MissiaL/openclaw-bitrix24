@@ -1,5 +1,7 @@
 # OpenClaw Bitrix24
 
+**English** | [Русский](README.ru.md)
+
 <!-- badges -->
 <!-- [![npm](https://img.shields.io/npm/v/@openclaw/bitrix24)](https://www.npmjs.com/package/@openclaw/bitrix24) -->
 <!-- [![CI](https://github.com/rsvbitrix/openclaw-bitrix24/actions/workflows/ci.yml/badge.svg)](https://github.com/rsvbitrix/openclaw-bitrix24/actions) -->
@@ -7,7 +9,20 @@
 
 Channel plugin that connects your OpenClaw AI agent to Bitrix24: users chat with the agent through Bitrix24 Messenger. Pair it with any Bitrix24 REST skill if you want the agent to manage CRM, tasks, calendar, and drive on the portal.
 
-The plugin talks to Bitrix24's current chatbot API, **imbot.v2 (Chatbots 2.0)**, not the deprecated v1 `imbot.*` methods. All events (new message, join chat, bot deleted, ...) arrive on a **single webhook endpoint** per account, `/webhook/bitrix24/<accountId>`, dispatched internally by the event's `event` field (e.g. `ONIMBOTV2MESSAGEADD`). Bitrix24 manages the underlying event subscriptions automatically whenever the bot is registered or updated -- there is no manual `event.bind`/`event.unbind` step.
+## Features
+
+All of these are verified against a live Bitrix24 portal:
+
+- **Two-way messaging** in private and group chats, with Markdown ⇄ BB-code conversion and automatic chunking of long replies.
+- **Inbound files** — user attachments (including cloud Drive files) are downloaded and handed to the agent as real media, with the original filename and MIME type recovered from the download response headers.
+- **Outbound files** — the agent can generate a file and send it to the chat (uploaded via `imbot.v2.File.upload`, with an optional caption).
+- **Quoted replies** — when a user quotes a message, the quoted content is resolved from an in-channel cache into the agent's context (Bitrix sends only the quoted message id).
+- **Group chats** — the bot answers when mentioned (`@BotName`); Bitrix itself delivers group messages to a chatbot only on mention, so the agent never spams the room. A welcome message is sent when the bot joins.
+- **Typing indicator** for the whole duration of an agent turn (refreshed every 8s), cleared right after the reply lands.
+- **Control commands** — `/status`, `/new`, `/stop`, `/restart` with a native slash-command menu in the chat UI, gated by a `commandUsers` allowlist.
+- **Message-tool targets** — the agent's `message` tool can send to `2172` (user) or `chat15762` (group chat) targets directly.
+
+The plugin talks to Bitrix24's current chatbot API, **imbot.v2 (Chatbots 2.0)**, not the deprecated v1 `imbot.*` methods. All events (new message, command, join chat, bot deleted, ...) arrive on a **single webhook endpoint** per account, `/webhook/bitrix24/<accountId>`, dispatched internally by the event's `event` field (e.g. `ONIMBOTV2MESSAGEADD`). Bitrix24 manages the underlying event subscriptions automatically whenever the bot is registered or updated -- there is no manual `event.bind`/`event.unbind` step.
 
 ## Requirements
 
@@ -144,6 +159,7 @@ channels:
 | `accounts[].enabled` | boolean | `true` | Enable/disable account |
 | `accounts[].textChunkLimit` | number | `18000` | Max characters per message |
 | `accounts[].dmPolicy` | string | `"open"` | `"open"` or `"paired"` |
+| `accounts[].commandUsers` | string[] | `[]` | Bitrix user ids allowed to run control commands (`/status`, `/new`, `/stop`, `/restart`); `"*"` allows everyone; empty disables commands. Channel-level `commandUsers` acts as the default. |
 | `accounts[].bot.name` | string | `"OpenClaw Agent"` | Bot display name |
 | `accounts[].bot.lastName` | string | -- | Bot last name |
 | `accounts[].bot.color` | string | `"PURPLE"` | Bot color in chat list |
@@ -171,6 +187,31 @@ Bitrix24 imbot.v2 `imbot.v2.*` methods require a stable secret `botToken` tied t
 
 Do not expose this value publicly. It is part of the bot control boundary.
 
+## Chat commands
+
+The plugin registers a native slash-command menu on the portal (idempotently, on every account startup) via `imbot.v2.Command.register`:
+
+| Command | Action |
+|---|---|
+| `/status` | Agent status and subscription limits |
+| `/new` | Start a new session |
+| `/stop` | Stop the current run |
+| `/restart` | Restart the OpenClaw gateway |
+
+These are OpenClaw built-ins — the channel only decides *who* may run them, via `commandUsers`:
+
+```yaml
+channels:
+  bitrix24:
+    accounts:
+      - id: default
+        commandUsers: ["2172"]   # Bitrix user ids; "*" = everyone
+```
+
+By default (`commandUsers` empty) commands are **disabled**: the bot is reachable by every portal employee, and an open `/restart` would be a footgun. For unauthorized users a `/command` message is treated as plain text for the agent.
+
+Menu invocations arrive as `ONIMBOTV2COMMANDADD` events; a manually typed `/command` may additionally fire a regular message event — the webhook router deduplicates by message id, so the agent sees each message exactly once.
+
 ## Architecture
 
 ```
@@ -193,11 +234,11 @@ Do not expose this value publicly. It is part of the bot control boundary.
 
 1. User sends a message to the bot in Bitrix24 Messenger
 2. Bitrix24 fires an `ONIMBOTV2MESSAGEADD` event to the single webhook endpoint (`/webhook/bitrix24/<accountId>`), authenticated via TOFU `application_token` matching
-3. Webhook server parses the event, converts BB-code to Markdown
-4. Message is forwarded to the OpenClaw agent for processing
+3. Webhook server parses the event, converts BB-code to Markdown; file attachments (`params.FILE_ID`) are downloaded and staged as local media for the agent; a quoted message (`params.REPLY_ID`) is resolved from the recent-message cache into the agent's reply context
+4. Message is forwarded to the OpenClaw agent; a typing indicator (`imbot.v2.Chat.InputAction.notify`) is kept alive for the whole turn
 5. Agent generates a response (optionally calling Bitrix24 REST API via skill)
 6. Response is converted from Markdown to BB-code, chunked if needed
-7. Bot replies via `imbot.v2.Chat.Message.send` with a typing indicator sent first via `imbot.v2.Chat.InputAction.notify`; files go via the single-call `imbot.v2.File.upload`
+7. Bot replies via `imbot.v2.Chat.Message.send`; agent-generated files go via the single-call `imbot.v2.File.upload`
 
 ## File Structure
 
@@ -207,24 +248,27 @@ openclaw-bitrix24/
     openclaw.plugin.json         #   Plugin manifest
     package.json                 #   @openclaw/bitrix24
     src/
-      index.ts                   #   Plugin entry point (register channels, services, commands)
-      channel.ts                 #   Bitrix24Channel class (messaging, lifecycle)
-      inbound-dispatch.ts        #   Deliver parsed inbound events to the agent (runtime.channel.inbound.dispatchReply)
+      index.ts                   #   Plugin entry point (channel + outbound adapters, HTTP route, commands)
+      channel.ts                 #   Bitrix24Channel class (messaging, lifecycle, quote cache, command menu)
+      inbound-dispatch.ts        #   Deliver parsed inbound events to the agent (runtime.channel.inbound.run): media staging, quotes, typing, command auth
+      outbound-media.ts          #   Resolve the host's outbound mediaUrl (local path / file:// / http) into an upload
       persist.ts                 #   Durable config writes (runtime.config.mutateConfigFile, non-restarting)
       runtime.ts                 #   Runtime DI (logger, config, mutateConfigFile)
       public-url.ts              #   Resolve externally reachable base URL for event handlers
+      setup-guide.ts             #   /b24setup instructions + welcome message
   src/bitrix24/                  # Core library
     accounts.ts                  #   Multi-account manager
     bot.ts                       #   Bot registration / unregistration / webhook URL updates (imbot.v2.Bot.register/update/unregister)
     client.ts                    #   Bitrix24 REST API client with rate limiter (retries on 503/429 + rate-limit error codes)
-    files.ts                     #   File send/receive via imbot.v2.File.upload/download
+    commands.ts                  #   Slash-command menu registration (imbot.v2.Command.register/list)
+    files.ts                     #   File send/receive via imbot.v2.File.upload/download (filename/MIME from response headers)
     format.ts                    #   Markdown <-> BB-code conversion
-    receive.ts                   #   Parse incoming imbot.v2 webhook events; TOFU application_token verification
+    receive.ts                   #   Parse incoming imbot.v2 webhook events (messages, commands, files, quotes); TOFU verification
     send.ts                      #   Send messages (chunking, typing, media) via imbot.v2.Chat.*
     targets.ts                   #   DIALOG_ID parsing (user vs. chat)
     token.ts                     #   Auth resolution (webhook URL / OAuth / env)
     types.ts                     #   TypeScript interfaces
-    webhook-server.ts            #   Single-endpoint Express router for all imbot.v2 events
+    webhook-server.ts            #   Single-endpoint Express router for all imbot.v2 events (message-id dedup)
   tests/unit/                    # Unit tests
     format.test.ts               #   Markdown/BB-code conversion tests
     receive.test.ts              #   Event parsing tests
@@ -339,7 +383,7 @@ Bitrix24 has a message length limit. The plugin automatically splits messages at
 
 - Ensure the `disk` scope is enabled on the webhook (still required by imbot.v2 even though `imbot.v2.File.upload` is a single call that no longer requires managing Disk storage/folders yourself).
 - Files over 100 MB fail with `FILE_TOO_LARGE`.
-- **Inbound files (received from a user):** the exact shape of an incoming file attachment in an `ONIMBOTV2MESSAGEADD` event is not fully documented and is parsed defensively; it is pending verification against a live portal. If attachments from users aren't detected, please file an issue with a redacted copy of the raw event payload.
+- **Inbound files (received from a user):** live-verified — an attachment arrives as `message.params.FILE_ID: ["<driveFileId>"]` (no name/size; the real filename and MIME type come from the download response headers). The doc-suggested `params.files` shapes are kept as fallbacks. If an attachment isn't detected, run with `BITRIX24_DEBUG=1` and file an issue with a redacted raw event payload.
 
 ### Bot replies with garbled formatting
 
