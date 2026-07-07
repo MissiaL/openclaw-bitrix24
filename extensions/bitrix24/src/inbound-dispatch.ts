@@ -92,7 +92,9 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
         SenderId: String(msg.fromUserId),
         Provider: 'bitrix24',
         Surface: 'bitrix24',
-        MessageSid: msg.messageId,
+        // Host maps MessageSid -> sourceMessageId and calls `.trim()` on it, so
+        // it MUST be a string (Bitrix message ids arrive as numbers).
+        MessageSid: String(msg.messageId),
         Timestamp: Date.now(),
         OriginatingChannel: 'bitrix24',
         OriginatingTo: `bitrix24:${msg.dialogId}`,
