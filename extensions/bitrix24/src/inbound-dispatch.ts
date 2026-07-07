@@ -149,6 +149,17 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
         channel: 'bitrix24',
         accountId: routeAccountId,
         raw: msg,
+        // Kernel stage tracing (ingest/record/dispatch/finalize start|done|error).
+        // Without this the turn is a black box between "dispatch via inbound.run"
+        // and "inbound.run returned" — exactly where the first live-debugging
+        // round got stuck.
+        log: (ev: any) => {
+          const err = ev?.error ? ` error=${String(ev.error)}` : '';
+          api.logger.info(
+            `[bitrix24] turn stage=${ev?.stage} event=${ev?.event} msg=${ev?.messageId ?? ''} ` +
+              `admission=${ev?.admission ?? ''}${ev?.reason ? ` reason=${ev.reason}` : ''}${err}`,
+          );
+        },
         adapter: {
           ingest: () => ({
             id: String(msg.messageId),

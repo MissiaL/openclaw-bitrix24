@@ -115,19 +115,23 @@ export default function register(api: any): void {
       },
       outbound: {
         deliveryMode: 'direct',
-        sendText: async ({ accountId, dialogId, text, media }: {
-          accountId: string;
-          dialogId: string;
+        // Host contract: ChannelOutboundContext `{ cfg, to, text, accountId, ... }`
+        // (see openclaw src/channels/plugins/outbound.types.ts). The target is
+        // `to` — there is no `dialogId` field. This is the path the agent's
+        // `message` tool takes, so the destructure must match exactly.
+        sendText: async ({ to, text, accountId }: {
+          to: string;
           text: string;
-          media?: any[];
+          accountId?: string | null;
         }) => {
-          await channel.sendTextMessage(
-            accountId ?? channel.resolveDefaultAccountId(),
-            dialogId,
-            text,
-            media,
-          );
-          return { ok: true };
+          const dialogId = String(to ?? '').replace(/^bitrix24:/, '');
+          const resolvedAccountId = accountId ?? channel.resolveDefaultAccountId();
+          const sent = await channel.sendTextMessage(resolvedAccountId, dialogId, text, undefined);
+          return {
+            channel: 'bitrix24',
+            messageId: sent?.messageIds?.[0] ?? '',
+            chatId: dialogId,
+          };
         },
       },
     },

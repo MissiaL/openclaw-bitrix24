@@ -12,6 +12,7 @@ vi.mock('axios', () => {
 });
 
 import register from '../../extensions/bitrix24/src/index.js';
+import { Bitrix24Channel } from '../../extensions/bitrix24/src/channel.js';
 
 function makeFakeApi(overrides: Record<string, any> = {}) {
   return {
@@ -80,5 +81,68 @@ describe('plugin register(api)', () => {
     const draft: any = {};
     params.mutate(draft);
     expect(draft.channels.bitrix24.webhookUrl).toBe(webhookUrl);
+  });
+
+  // The host calls outbound.sendText with a ChannelOutboundContext:
+  // `{ cfg, to, text, accountId, ... }` — there is NO `dialogId` field. This is
+  // the path the agent's `message` tool uses; a wrong destructure means every
+  // tool-driven send fails with an undefined dialog (observed live: the agent
+  // then invents REST workarounds instead of replying).
+  describe('outbound.sendText (ChannelOutboundContext contract)', () => {
+    function registerAndGetSendText() {
+      const api = makeFakeApi();
+      register(api);
+      return api.registerChannel.mock.calls[0][0].plugin.outbound.sendText;
+    }
+
+    it('sends to the `to` target and returns an OutboundDeliveryResult', async () => {
+      const spy = vi
+        .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')
+        .mockResolvedValue({ messageIds: ['777'] } as any);
+      try {
+        const sendText = registerAndGetSendText();
+        const result = await sendText({
+          cfg: {},
+          to: '2172',
+          text: 'hello',
+          accountId: 'default',
+        });
+        expect(spy).toHaveBeenCalledWith('default', '2172', 'hello', undefined);
+        expect(result.channel).toBe('bitrix24');
+        expect(result.messageId).toBe('777');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('strips a channel-prefixed target (bitrix24:2172 → 2172)', async () => {
+      const spy = vi
+        .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')
+        .mockResolvedValue({ messageIds: ['1'] } as any);
+      try {
+        const sendText = registerAndGetSendText();
+        await sendText({ cfg: {}, to: 'bitrix24:2172', text: 'hi', accountId: 'default' });
+        expect(spy).toHaveBeenCalledWith('default', '2172', 'hi', undefined);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('falls back to the default account when accountId is absent', async () => {
+      const spy = vi
+        .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')
+        .mockResolvedValue({ messageIds: ['1'] } as any);
+      const defaultSpy = vi
+        .spyOn(Bitrix24Channel.prototype, 'resolveDefaultAccountId')
+        .mockReturnValue('default');
+      try {
+        const sendText = registerAndGetSendText();
+        await sendText({ cfg: {}, to: '2172', text: 'hi' });
+        expect(spy).toHaveBeenCalledWith('default', '2172', 'hi', undefined);
+      } finally {
+        spy.mockRestore();
+        defaultSpy.mockRestore();
+      }
+    });
   });
 });

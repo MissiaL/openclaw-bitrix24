@@ -88,14 +88,14 @@ export class Bitrix24Channel {
     dialogId: string,
     text: string,
     media?: MediaAttachment[],
-  ): Promise<void> {
+  ): Promise<{ messageIds: string[] }> {
     const account = this.accountManager.getAccount(accountId);
     if (!account || !account.botId || !account.bot.clientId) {
       throw new Error(`Account "${accountId}" not configured, bot not registered, or bot token missing`);
     }
 
     const client = this.accountManager.getClient(accountId);
-    await sendMessage(client, {
+    return await sendMessage(client, {
       botId: account.botId,
       botClientId: account.bot.clientId,
       dialogId,
