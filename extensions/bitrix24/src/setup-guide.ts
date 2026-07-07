@@ -84,36 +84,42 @@ export function formatMissingScopes(missing: string[]): string {
 
 /**
  * Welcome message sent when bot is added to a Bitrix24 chat.
- * Explains capabilities and gives usage examples.
+ * Explains capabilities and gives usage examples. Russian: the portal's
+ * working language (see chat.md skill docs); Bitrix delivers the event
+ * with language:"ru" on the client portals this plugin targets.
  */
 export function getWelcomeMessage(): string {
   return [
-    'Hi! I\'m your OpenClaw agent connected to this Bitrix24 portal.',
+    'Привет! Я OpenClaw-агент, подключённый к этому порталу Битрикс24.',
     '',
-    'Here\'s what I can help you with:',
+    'Чем могу помочь:',
     '',
-    '**CRM** — deals, contacts, leads, companies',
-    '  "Show my open deals"',
-    '  "Create a new lead for John Smith, +7 900 123-45-67"',
-    '  "Move deal #42 to stage Won"',
+    '**CRM** — сделки, контакты, лиды, компании',
+    '  «Покажи мои открытые сделки»',
+    '  «Создай лид: Иван Смирнов, +7 900 123-45-67»',
+    '  «Какие звонки были сегодня?»',
     '',
-    '**Tasks** — create, track, delegate',
-    '  "Create a task: Prepare Q2 report, deadline Friday"',
-    '  "What tasks are assigned to me?"',
-    '  "Complete task #15"',
+    '**Задачи** — создать, отследить, делегировать',
+    '  «Создай задачу: подготовить отчёт за квартал, срок — пятница»',
+    '  «Какие задачи назначены на меня?»',
     '',
-    '**Messaging** — send messages to colleagues',
-    '  "Send a message to Anna: the meeting is moved to 3pm"',
-    '  "Post in the Marketing chat: new campaign is live"',
+    '**Файлы и документы** — пришлите файл, я его разберу',
+    '  «Что это за документ?» (с вложением)',
+    '  «Сформируй файл со сводкой и пришли сюда»',
     '',
-    '**Calendar** — events and schedules',
-    '  "What\'s on my calendar for tomorrow?"',
-    '  "Schedule a call with the team on Monday at 10am"',
+    '**Сообщения и календарь**',
+    '  «Отправь Анне: встреча переносится на 15:00»',
+    '  «Что у меня в календаре на завтра?»',
     '',
-    '**Drive** — files and documents',
-    '  "Find the Q1 report on Drive"',
+    'Можно отвечать на конкретное сообщение (цитатой) — я увижу контекст.',
     '',
-    'Just type your request in plain language — I\'ll take care of the rest!',
+    '**Команды:**',
+    '  /status — статус и лимиты подписки',
+    '  /new — начать новую сессию',
+    '  /stop — прервать текущую задачу',
+    '  /restart — перезапустить бота на сервере',
+    '',
+    'Просто напишите запрос обычным языком — остальное я сделаю сам!',
   ].join('\n');
 }
 

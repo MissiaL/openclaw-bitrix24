@@ -45,32 +45,34 @@ describe('setup-guide', () => {
       expect(msg.length).toBeGreaterThan(100);
     });
 
-    it('should mention CRM capabilities', () => {
+    it('should mention CRM capabilities in Russian', () => {
       const msg = getWelcomeMessage();
       expect(msg).toContain('CRM');
-      expect(msg).toContain('deals');
+      expect(msg).toContain('сделки');
     });
 
     it('should mention Tasks capabilities', () => {
       const msg = getWelcomeMessage();
-      expect(msg).toContain('Tasks');
+      expect(msg).toContain('Задачи');
     });
 
-    it('should mention Messaging capabilities', () => {
+    it('should mention files and quoting', () => {
       const msg = getWelcomeMessage();
-      expect(msg).toContain('Messaging');
+      expect(msg).toContain('Файлы');
+      expect(msg).toContain('цитатой');
     });
 
     it('should include usage examples', () => {
       const msg = getWelcomeMessage();
-      // Should have example queries in quotes
-      expect(msg).toMatch(/".*"/);
+      // Should have example queries in Russian quotes
+      expect(msg).toMatch(/«.*»/);
     });
 
-    it('should mention Calendar and Drive', () => {
+    it('should list all control commands', () => {
       const msg = getWelcomeMessage();
-      expect(msg).toContain('Calendar');
-      expect(msg).toContain('Drive');
+      for (const cmd of ['/status', '/new', '/stop', '/restart']) {
+        expect(msg).toContain(cmd);
+      }
     });
   });
 
