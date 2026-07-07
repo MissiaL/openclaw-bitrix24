@@ -3,6 +3,7 @@ import { setBitrix24Runtime } from './runtime.js';
 import { persistConfigValue, DURABLE_AFTER_WRITE, type ConfigMutator } from './persist.js';
 import { wireInboundDispatch } from './inbound-dispatch.js';
 import { loadOutboundMedia } from './outbound-media.js';
+import { presentationToKeyboard } from '../../../src/bitrix24/buttons.js';
 import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
 import { resolvePublicUrl } from './public-url.js';
@@ -186,6 +187,37 @@ export default function register(api: any): void {
           }
           const media = await loadOutboundMedia(mediaUrl, mediaReadFile);
           const sent = await channel.sendTextMessage(resolvedAccountId, dialogId, text ?? '', [media]);
+          return {
+            channel: 'bitrix24',
+            messageId: sent?.messageIds?.[0] ?? '',
+            chatId: dialogId,
+          };
+        },
+        // Structured payloads — this is the path the agent's `message` tool
+        // takes when it includes `presentation` (buttons/selects). Without it
+        // the host falls back to sendText and the buttons are lost. Handles
+        // text + optional media + a keyboard mapped from the presentation.
+        sendPayload: async ({ to, text, accountId, payload, mediaReadFile }: {
+          to: string;
+          text?: string;
+          accountId?: string | null;
+          payload?: any;
+          mediaReadFile?: (filePath: string) => Promise<Buffer>;
+        }) => {
+          const dialogId = String(to ?? '').replace(/^bitrix24:/, '');
+          const resolvedAccountId = accountId ?? channel.resolveDefaultAccountId();
+          const bodyText = text ?? payload?.text ?? '';
+          const keyboard = presentationToKeyboard(payload?.presentation);
+          const mediaUrl = payload?.mediaUrl ?? payload?.mediaUrls?.[0];
+          const media = mediaUrl ? [await loadOutboundMedia(mediaUrl, mediaReadFile)] : undefined;
+          // Bitrix needs a non-empty MESSAGE to carry a keyboard.
+          const sent = await channel.sendTextMessage(
+            resolvedAccountId,
+            dialogId,
+            bodyText || (keyboard ? '⁣' : ''),
+            media,
+            keyboard,
+          );
           return {
             channel: 'bitrix24',
             messageId: sent?.messageIds?.[0] ?? '',

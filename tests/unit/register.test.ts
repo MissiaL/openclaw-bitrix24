@@ -132,6 +132,35 @@ describe('plugin register(api)', () => {
     // host's generic id heuristic (/^\+?\d{6,}$/), so without a plugin
     // targetResolver every message-tool send dies with `Unknown target "2172"
     // for Bitrix24.` (observed live, recorded in the portal's .learnings).
+    it('sendPayload renders presentation buttons as a Bitrix keyboard', async () => {
+      const spy = vi
+        .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')
+        .mockResolvedValue({ messageIds: ['555'] } as any);
+      try {
+        const api = makeFakeApi();
+        register(api);
+        const sendPayload = api.registerChannel.mock.calls[0][0].plugin.outbound.sendPayload;
+        const result = await sendPayload({
+          cfg: {},
+          to: '2172',
+          text: 'Выберите:',
+          accountId: 'default',
+          payload: {
+            text: 'Выберите:',
+            presentation: {
+              blocks: [{ type: 'buttons', buttons: [{ label: 'Да', action: { type: 'command', value: 'yes' } }] }],
+            },
+          },
+        });
+        const [acct, dialog, text, media, keyboard] = spy.mock.calls[0];
+        expect([acct, dialog, text, media]).toEqual(['default', '2172', 'Выберите:', undefined]);
+        expect(keyboard.BUTTONS[0]).toMatchObject({ TEXT: 'Да', COMMAND: 'openclaw_cb', COMMAND_PARAMS: 'yes' });
+        expect(result).toMatchObject({ channel: 'bitrix24', messageId: '555', chatId: '2172' });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('registers a targetResolver that recognizes Bitrix dialog ids', async () => {
       const api = makeFakeApi();
       register(api);
