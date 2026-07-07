@@ -13,11 +13,7 @@ Uses Bitrix24's current chatbot API, **imbot.v2 (Chatbots 2.0)**, not the deprec
 
 ## Install
 
-```bash
-openclaw plugins install @openclaw/bitrix24
-```
-
-### Installing from source
+The `@openclaw/bitrix24` npm package is not published yet, so install from source:
 
 - **Dev** — add this directory to `plugins.load.paths` in your OpenClaw config; the TypeScript entry (`src/index.ts`) is loaded directly, no build step needed.
 - **Prod** — build and install the compiled package:
@@ -28,6 +24,8 @@ openclaw plugins install @openclaw/bitrix24
   npm run build
   openclaw plugins install .
   ```
+
+Once the package is published, `openclaw plugins install @openclaw/bitrix24` will be the one-line option.
 
 ## Quick Setup
 

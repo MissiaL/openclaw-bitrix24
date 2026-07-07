@@ -33,9 +33,16 @@ The plugin talks to Bitrix24's current chatbot API, **imbot.v2 (Chatbots 2.0)**,
 
 ### 1. Install the plugin
 
+Clone this repo and install the built plugin:
+
 ```bash
-openclaw plugins install @openclaw/bitrix24
+git clone https://github.com/rsvbitrix/openclaw-bitrix24.git
+cd openclaw-bitrix24/extensions/bitrix24
+npm install && npm run build
+openclaw plugins install .
 ```
+
+> The `@openclaw/bitrix24` npm package is not published yet; once it is, `openclaw plugins install @openclaw/bitrix24` will be the one-line option. See [Installing from a working copy](#installing-from-a-working-copy) for the dev (no-build) alternative.
 
 ### 2. Get a webhook URL
 
@@ -287,7 +294,7 @@ openclaw-bitrix24/
 
 ```bash
 git clone https://github.com/rsvbitrix/openclaw-bitrix24.git
-cd channel-bitrix24
+cd openclaw-bitrix24
 npm install
 ```
 
