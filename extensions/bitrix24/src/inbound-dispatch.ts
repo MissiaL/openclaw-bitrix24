@@ -277,7 +277,23 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
                 );
               },
             },
-            replyPipeline: {},
+            // typing: the kernel builds createTypingCallbacks(...) from this and
+            // runs a keepalive loop for the whole turn — without it the Bitrix
+            // "печатает…" indicator fires only right before the reply message
+            // and long turns look dead to the user.
+            replyPipeline: {
+              typing: {
+                start: () => channel.sendTypingIndicator(routeAccountId, msg.dialogId),
+                onStartError: (err: unknown) => {
+                  api.logger.warn(`[bitrix24] typing indicator failed: ${String(err)}`);
+                },
+                // Refresh comfortably inside Bitrix's ~10s indicator TTL, but
+                // don't hammer the REST rate limiter.
+                keepaliveIntervalMs: 8_000,
+                // Long tool-using turns run for minutes; default TTL is 60s.
+                maxDurationMs: 300_000,
+              },
+            },
             replyOptions: {},
             record: {
               onRecordError: (err: unknown) => {

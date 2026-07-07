@@ -1,6 +1,6 @@
 import { AccountManager, type RawChannelConfig } from '../../../src/bitrix24/accounts.js';
 import { registerBot, unregisterBot, updateBotEventUrls, ensureWebhookMode } from '../../../src/bitrix24/bot.js';
-import { sendMessage } from '../../../src/bitrix24/send.js';
+import { sendMessage, sendTyping } from '../../../src/bitrix24/send.js';
 import { downloadFile } from '../../../src/bitrix24/files.js';
 import type { IncomingMessage, MediaAttachment } from '../../../src/bitrix24/types.js';
 import { getBitrix24Runtime } from './runtime.js';
@@ -122,6 +122,19 @@ export class Bitrix24Channel {
       this.rememberMessage(accountId, id, { text, sender: 'bot' });
     }
     return result;
+  }
+
+  /**
+   * Fire a single typing indicator (`imbot.v2.Chat.InputAction.notify`).
+   * The host's typing keepalive loop calls this periodically for the whole
+   * duration of an agent turn.
+   */
+  async sendTypingIndicator(accountId: string, dialogId: string): Promise<void> {
+    const account = this.accountManager.getAccount(accountId);
+    if (!account?.botId || !account.bot.clientId) {
+      throw new Error(`Account "${accountId}" not configured or bot not registered`);
+    }
+    await sendTyping(this.accountManager.getClient(accountId), account.botId, account.bot.clientId, dialogId);
   }
 
   /**

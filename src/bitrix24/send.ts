@@ -76,7 +76,7 @@ export async function sendMessage(
  * indicator (spec §6); callers wanting a semantic status (e.g. "thinking")
  * can pass one of the documented codes such as `IMBOT_AGENT_ACTION_THINKING`.
  */
-async function sendTyping(
+export async function sendTyping(
   client: Bitrix24Client,
   botId: number,
   botToken: string,

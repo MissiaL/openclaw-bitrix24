@@ -260,6 +260,23 @@ describe('wireInboundDispatch', () => {
     });
   });
 
+  it('wires a typing keepalive into the reply pipeline', async () => {
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
+    (channel as any).sendTypingIndicator = vi.fn().mockResolvedValue(undefined);
+
+    wireInboundDispatch(api as any, channel as any);
+    await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat42' }));
+
+    const typing = (run as any).lastTurn.replyPipeline?.typing;
+    expect(typing).toBeDefined();
+    expect(typing.keepaliveIntervalMs).toBeGreaterThan(0);
+    await typing.start();
+    expect((channel as any).sendTypingIndicator).toHaveBeenCalledWith(ACCOUNT_ID, 'chat42');
+    // A typing failure must be swallowed by onStartError, never crash the turn.
+    expect(() => typing.onStartError(new Error('x'))).not.toThrow();
+  });
+
   it('delivery.deliver skips intermediate (non-final) blocks', async () => {
     const { runtime, run } = makeRuntime();
     const api = makeFakeApi({ runtime });
