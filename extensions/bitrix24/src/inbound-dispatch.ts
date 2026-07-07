@@ -2,6 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { bbCodeToMarkdown } from '../../../src/bitrix24/format.js';
+import { presentationToKeyboard } from '../../../src/bitrix24/buttons.js';
 import type { IncomingMessage } from '../../../src/bitrix24/types.js';
 import type { Bitrix24Channel } from './channel.js';
 
@@ -225,13 +226,19 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           // Only send the final consolidated reply (skip intermediate blocks).
           if (kind && kind !== 'final') return undefined;
           const text = payload?.text ?? payload?.body ?? '';
-          if (!text) {
+          // Interactive buttons: the host attaches its portable presentation
+          // (button blocks) because we advertise presentationCapabilities.
+          const keyboard = presentationToKeyboard(payload?.presentation);
+          if (!text && !keyboard) {
             api.logger.warn(`[bitrix24] final reply had no text (dialog=${msg.dialogId})`);
             return undefined;
           }
-          await channel.sendTextMessage(routeAccountId, msg.dialogId, text);
+          // Bitrix needs a non-empty MESSAGE to carry a keyboard.
+          const bodyText = text || '⁣';
+          await channel.sendTextMessage(routeAccountId, msg.dialogId, bodyText, undefined, keyboard);
           api.logger.info(
-            `[bitrix24] reply delivered to dialog=${msg.dialogId} (${String(text).length} chars)`,
+            `[bitrix24] reply delivered to dialog=${msg.dialogId} ` +
+              `(${String(text).length} chars${keyboard ? `, ${keyboard.BUTTONS.length} button entries` : ''})`,
           );
         } catch (err) {
           api.logger.error(`[bitrix24] delivery to dialog=${msg.dialogId} failed: ${String(err)}`);

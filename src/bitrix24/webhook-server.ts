@@ -1,6 +1,7 @@
 import express, { Router, type Express, type Request, type Response } from 'express';
 import type { Bitrix24MessageEvent, Bitrix24WelcomeEvent, Bitrix24BotDeleteEvent, IncomingMessage } from './types.js';
-import { parseMessageEvent, parseCommandEvent, parseWelcomeEvent, parseBotDeleteEvent, verifyApplicationToken } from './receive.js';
+import { parseMessageEvent, parseCommandEvent, parseCallbackButtonEvent, readCommandName, parseWelcomeEvent, parseBotDeleteEvent, verifyApplicationToken } from './receive.js';
+import { CALLBACK_COMMAND } from './buttons.js';
 
 export interface WebhookHandlers {
   onMessage: (accountId: string, msg: IncomingMessage) => void;
@@ -147,15 +148,20 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
         }
 
         case 'ONIMBOTV2COMMANDADD': {
-          // Registered slash-command invocation (typed, keyboard, or menu).
-          // Parsed into the same IncomingMessage shape with a "/command args"
-          // text so the host's native command handling picks it up.
+          // Registered slash-command invocation (typed, keyboard, or menu) OR
+          // an interactive callback-button press. A callback button carries our
+          // sentinel COMMAND and is fed back to the agent as a plain message;
+          // everything else is a real "/command" for the host's command handler.
           if (!authenticateAndCapture(accountId, body, handlers)) {
             res.status(403).json({ error: 'Invalid application token' });
             return;
           }
 
-          const msg = parseCommandEvent(body as unknown as Bitrix24MessageEvent);
+          const typedBody = body as unknown as Bitrix24MessageEvent;
+          const msg =
+            readCommandName(typedBody) === CALLBACK_COMMAND
+              ? parseCallbackButtonEvent(typedBody)
+              : parseCommandEvent(typedBody);
           if (msg && firstDelivery(accountId, msg.messageId)) {
             handlers.onMessage(accountId, msg);
           }

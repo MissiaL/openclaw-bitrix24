@@ -36,7 +36,7 @@ describe('sendMessage — chunking + keyboard attachment (minor fix a)', () => {
     // duplicate string — so the keyboard would have landed on chunk 0, not
     // chunk 1, whenever two chunks were textually identical.
     const client = makeClient([{ id: 1 }, { id: 2 }]);
-    const keyboard = { buttons: [[{ TEXT: 'OK' }]] };
+    const keyboard = { BUTTONS: [{ TEXT: 'OK', COMMAND: 'openclaw_cb', COMMAND_PARAMS: 'ok' }] };
 
     // chunkText('aaaa\n\naaaa', 4) === ['aaaa', 'aaaa'] — two identical chunks.
     const msg: OutgoingMessage = {
@@ -54,7 +54,7 @@ describe('sendMessage — chunking + keyboard attachment (minor fix a)', () => {
     expect(sendCalls[0][1].fields.message).toBe('aaaa');
     expect(sendCalls[0][1].fields.keyboard).toBeUndefined();
     expect(sendCalls[1][1].fields.message).toBe('aaaa');
-    expect(sendCalls[1][1].fields.keyboard).toEqual(keyboard.buttons);
+    expect(sendCalls[1][1].fields.keyboard).toEqual(keyboard);
   });
 
   it('omits the keyboard from every chunk when no keyboard is provided', async () => {
@@ -75,7 +75,7 @@ describe('sendMessage — chunking + keyboard attachment (minor fix a)', () => {
 
   it('attaches the keyboard to the single chunk when the text does not need chunking', async () => {
     const client = makeClient([{ id: 1 }]);
-    const keyboard = { buttons: [[{ TEXT: 'OK' }]] };
+    const keyboard = { BUTTONS: [{ TEXT: 'OK', COMMAND: 'openclaw_cb', COMMAND_PARAMS: 'ok' }] };
     const msg: OutgoingMessage = {
       botId: 42,
       botClientId: 'tok',
@@ -88,12 +88,12 @@ describe('sendMessage — chunking + keyboard attachment (minor fix a)', () => {
 
     const sendCalls = messageSendCalls(client);
     expect(sendCalls).toHaveLength(1);
-    expect(sendCalls[0][1].fields.keyboard).toEqual(keyboard.buttons);
+    expect(sendCalls[0][1].fields.keyboard).toEqual(keyboard);
   });
 
   it('attaches the keyboard to the last of three+ chunks', async () => {
     const client = makeClient([{ id: 1 }, { id: 2 }, { id: 3 }]);
-    const keyboard = { buttons: [[{ TEXT: 'Next' }]] };
+    const keyboard = { BUTTONS: [{ TEXT: 'Next', COMMAND: 'openclaw_cb', COMMAND_PARAMS: 'next' }] };
     // 'aa\n\naa\n\naa' with maxLength=2 splits into three chunks: ['aa','aa','aa'].
     const msg: OutgoingMessage = {
       botId: 42,
@@ -108,7 +108,7 @@ describe('sendMessage — chunking + keyboard attachment (minor fix a)', () => {
     const sendCalls = messageSendCalls(client);
     expect(sendCalls.length).toBeGreaterThanOrEqual(2);
     const last = sendCalls[sendCalls.length - 1];
-    expect(last[1].fields.keyboard).toEqual(keyboard.buttons);
+    expect(last[1].fields.keyboard).toEqual(keyboard);
     for (const call of sendCalls.slice(0, -1)) {
       expect(call[1].fields.keyboard).toBeUndefined();
     }

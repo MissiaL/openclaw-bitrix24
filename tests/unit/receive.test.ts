@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   parseMessageEvent,
   parseCommandEvent,
+  parseCallbackButtonEvent,
+  readCommandName,
   parseWelcomeEvent,
   parseBotDeleteEvent,
   verifyApplicationToken,
@@ -297,6 +299,29 @@ describe('parseCommandEvent', () => {
   it('returns null when no command can be recovered', () => {
     const msg = parseCommandEvent(makeMessageEvent({ text: 'просто текст' }));
     expect(msg).toBeNull();
+  });
+});
+
+// ── parseCallbackButtonEvent (interactive keyboard callback) ─────────────────
+
+describe('parseCallbackButtonEvent', () => {
+  function callbackEvent(params) {
+    const e = makeMessageEvent({ text: '' });
+    e.data.command = { command: 'openclaw_cb', params, context: 'keyboard' };
+    return e;
+  }
+
+  it('readCommandName returns the invoked command without a slash', () => {
+    expect(readCommandName(callbackEvent('approve_42'))).toBe('openclaw_cb');
+  });
+
+  it('feeds the callback value back as plain message text (no slash)', () => {
+    const msg = parseCallbackButtonEvent(callbackEvent('approve_42'));
+    expect(msg.text).toBe('approve_42');
+  });
+
+  it('returns null when the callback carries no value', () => {
+    expect(parseCallbackButtonEvent(callbackEvent(''))).toBeNull();
   });
 });
 

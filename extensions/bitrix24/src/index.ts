@@ -131,6 +131,25 @@ export default function register(api: any): void {
       },
       outbound: {
         deliveryMode: 'direct',
+        // Advertise native button rendering so the host attaches the portable
+        // presentation (button blocks) to reply payloads instead of degrading
+        // them to text. The reply-path deliver() maps those blocks to a Bitrix
+        // keyboard. Limits are conservative (Bitrix keyboard caps are
+        // undocumented).
+        presentationCapabilities: {
+          supported: true,
+          buttons: true,
+          limits: {
+            actions: {
+              maxActions: 30,
+              maxActionsPerRow: 5,
+              maxRows: 10,
+              maxLabelLength: 60,
+              supportsStyles: false,
+              supportsDisabled: false,
+            },
+          },
+        },
         // Host contract: ChannelOutboundContext `{ cfg, to, text, accountId, ... }`
         // (see openclaw src/channels/plugins/outbound.types.ts). The target is
         // `to` — there is no `dialogId` field. This is the path the agent's

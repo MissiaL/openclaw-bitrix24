@@ -143,18 +143,33 @@ export interface MediaAttachment {
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────
 
+/**
+ * One Bitrix24 message-keyboard button (imbot.v2 / im keyboard format,
+ * confirmed against the REST docs — the button array is FLAT, and rows are
+ * created by inserting a `{ TYPE: 'NEWLINE' }` separator, NOT by nesting).
+ *
+ * A button carries exactly one action:
+ *   - `LINK` — opens a URL (one-way, no event);
+ *   - `COMMAND` (+ `COMMAND_PARAMS`) — fires an `ONIMBOTV2COMMANDADD` event
+ *     on press (this is the true callback path);
+ *   - `TYPE: 'NEWLINE'` — a layout separator with no TEXT/action.
+ */
 export interface KeyboardButton {
-  TEXT: string;
+  TEXT?: string;
+  /** Only value is 'NEWLINE' — moves following buttons to a new row. */
+  TYPE?: 'NEWLINE';
   LINK?: string;
   COMMAND?: string;
   COMMAND_PARAMS?: string;
   BG_COLOR?: string;
   TEXT_COLOR?: string;
-  BLOCK?: 'Y' | 'N';
+  /** 'LINE' (inline) or 'BLOCK' (full-width, Bitrix default). */
+  DISPLAY?: 'LINE' | 'BLOCK';
 }
 
+/** Bitrix keyboard payload sent as `fields.keyboard`. */
 export interface KeyboardMarkup {
-  buttons: KeyboardButton[][];
+  BUTTONS: KeyboardButton[];
 }
 
 // ── Bitrix24 imbot.v2 Event Payloads ─────────────────────────────────────────

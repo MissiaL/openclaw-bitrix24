@@ -118,8 +118,9 @@ async function sendTextMessage(
     message: params.text,
   };
 
-  if (params.keyboard) {
-    fields.keyboard = params.keyboard.buttons;
+  if (params.keyboard && params.keyboard.BUTTONS.length > 0) {
+    // Bitrix wants the whole `{ BUTTONS: [...] }` object (flat button array).
+    fields.keyboard = params.keyboard;
   }
 
   const result = await client.callMethod<{ id: number | string; uuidMap?: Record<string, unknown> }>(

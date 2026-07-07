@@ -3,7 +3,7 @@ import { registerBot, unregisterBot, updateBotEventUrls, ensureWebhookMode } fro
 import { sendMessage, sendTyping } from '../../../src/bitrix24/send.js';
 import { ensureBotCommands } from '../../../src/bitrix24/commands.js';
 import { downloadFile } from '../../../src/bitrix24/files.js';
-import type { IncomingMessage, MediaAttachment } from '../../../src/bitrix24/types.js';
+import type { IncomingMessage, MediaAttachment, KeyboardMarkup } from '../../../src/bitrix24/types.js';
 import { getBitrix24Runtime } from './runtime.js';
 import { persistConfigValue, persistConfigMutation, setConfigPath, upsertBitrix24Account, DURABLE_AFTER_WRITE } from './persist.js';
 
@@ -101,6 +101,7 @@ export class Bitrix24Channel {
     dialogId: string,
     text: string,
     media?: MediaAttachment[],
+    keyboard?: KeyboardMarkup,
   ): Promise<{ messageIds: string[] }> {
     const account = this.accountManager.getAccount(accountId);
     if (!account || !account.botId || !account.bot.clientId) {
@@ -114,6 +115,7 @@ export class Bitrix24Channel {
       dialogId,
       text,
       media,
+      keyboard,
     }, {
       textChunkLimit: account.textChunkLimit,
     });

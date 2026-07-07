@@ -134,7 +134,7 @@ describe('wireInboundDispatch', () => {
     const delivery = (run as any).lastTurn.delivery;
     await delivery.deliver({ text: 'hi' }, { kind: 'final' });
 
-    expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'hi');
+    expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'hi', undefined, undefined);
   });
 
   // Inbound files (live-verified FILE_ID shape) must reach the agent as
@@ -296,6 +296,71 @@ describe('wireInboundDispatch', () => {
     });
   });
 
+  // Interactive buttons: the host attaches a portable presentation with
+  // button blocks (because the plugin advertises presentationCapabilities);
+  // deliver() maps it to a Bitrix keyboard.
+  describe('reply buttons', () => {
+    it('maps presentation button blocks to a Bitrix keyboard on delivery', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat42' }));
+
+      const delivery = (run as any).lastTurn.delivery;
+      await delivery.deliver(
+        {
+          text: 'Выберите:',
+          presentation: {
+            blocks: [
+              { type: 'buttons', buttons: [
+                { label: 'Да', action: { type: 'command', value: 'yes' } },
+                { label: 'Сайт', url: 'https://bitrix24.ru' },
+              ] },
+            ],
+          },
+        },
+        { kind: 'final' },
+      );
+
+      const [acct, dialog, text, media, keyboard] = channel.sendTextMessage.mock.calls[0];
+      expect([acct, dialog, text, media]).toEqual([ACCOUNT_ID, 'chat42', 'Выберите:', undefined]);
+      expect(keyboard.BUTTONS).toEqual([
+        { TEXT: 'Да', COMMAND: 'openclaw_cb', COMMAND_PARAMS: 'yes', DISPLAY: 'LINE' },
+        { TEXT: 'Сайт', LINK: 'https://bitrix24.ru', DISPLAY: 'LINE' },
+      ]);
+    });
+
+    it('delivers a button-only reply (empty text) with a placeholder message', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat42' }));
+
+      const delivery = (run as any).lastTurn.delivery;
+      await delivery.deliver(
+        { text: '', presentation: { blocks: [{ type: 'buttons', buttons: [{ label: 'Ок', value: 'ok' }] }] } },
+        { kind: 'final' },
+      );
+
+      const call = channel.sendTextMessage.mock.calls[0];
+      expect(call[2]).not.toBe('');
+      expect(call[4].BUTTONS[0].COMMAND_PARAMS).toBe('ok');
+    });
+
+    it('sends a plain text reply (no keyboard) when there is no presentation', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat42' }));
+
+      await (run as any).lastTurn.delivery.deliver({ text: 'hi' }, { kind: 'final' });
+      expect(channel.sendTextMessage.mock.calls[0][4]).toBeUndefined();
+    });
+  });
+
   it('wires a typing keepalive into the reply pipeline', async () => {
     const { runtime, run } = makeRuntime();
     const api = makeFakeApi({ runtime });
@@ -343,7 +408,7 @@ describe('wireInboundDispatch', () => {
     const delivery = (run as any).lastTurn.delivery;
     await delivery.deliver({ body: 'from body field' }, { kind: 'final' });
 
-    expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'from body field');
+    expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'from body field', undefined, undefined);
   });
 
   it('delivery.deliver does not send when the final payload has neither text nor body', async () => {

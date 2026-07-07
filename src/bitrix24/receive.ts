@@ -233,6 +233,39 @@ export function parseCommandEvent(body: Bitrix24MessageEvent): IncomingMessage |
 }
 
 /**
+ * Read the invoked command name from an ONIMBOTV2COMMANDADD body
+ * (`data.command.command`, without the leading slash). Used to tell an
+ * interactive callback button (our sentinel) apart from a real slash command.
+ */
+export function readCommandName(body: Bitrix24MessageEvent): string {
+  const data = (body as { data?: Record<string, unknown> }).data ?? {};
+  const raw = data.command as Record<string, unknown> | string | undefined;
+  const name =
+    typeof raw === 'object' && raw !== null ? String(raw.command ?? raw.name ?? '') : String(raw ?? '');
+  return name.trim().replace(/^\//, '');
+}
+
+/**
+ * Parse a callback-button press (ONIMBOTV2COMMANDADD whose COMMAND is our
+ * interactive-callback sentinel) into a PLAIN inbound message: the agent-
+ * defined callback value (`data.command.params`) becomes the message text so
+ * the agent sees the user's choice as ordinary input, not a slash command.
+ */
+export function parseCallbackButtonEvent(body: Bitrix24MessageEvent): IncomingMessage | null {
+  const msg = parseMessageEvent(body);
+  if (!msg) return null;
+  const data = (body as { data?: Record<string, unknown> }).data ?? {};
+  const raw = data.command as Record<string, unknown> | undefined;
+  const params =
+    typeof raw === 'object' && raw !== null
+      ? String(raw.params ?? raw.commandParams ?? '').trim()
+      : '';
+  if (params === '') return null;
+  msg.text = params;
+  return msg;
+}
+
+/**
  * Parse a welcome event (ONIMBOTV2JOINCHAT — bot added to chat).
  * dialogId is read from `data.dialogId`, falling back to `data.chat.dialogId`.
  */
