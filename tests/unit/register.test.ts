@@ -128,6 +128,31 @@ describe('plugin register(api)', () => {
       }
     });
 
+    // Bitrix dialog ids are short numerics ("2172") or "chatNN" — both fail the
+    // host's generic id heuristic (/^\+?\d{6,}$/), so without a plugin
+    // targetResolver every message-tool send dies with `Unknown target "2172"
+    // for Bitrix24.` (observed live, recorded in the portal's .learnings).
+    it('registers a targetResolver that recognizes Bitrix dialog ids', async () => {
+      const api = makeFakeApi();
+      register(api);
+      const messaging = api.registerChannel.mock.calls[0][0].plugin.messaging;
+      expect(messaging?.targetResolver?.looksLikeId).toBeTypeOf('function');
+      const { looksLikeId, resolveTarget } = messaging.targetResolver;
+      expect(looksLikeId('2172')).toBe(true);
+      expect(looksLikeId('chat15762')).toBe(true);
+      expect(looksLikeId('bitrix24:2172')).toBe(true);
+      expect(looksLikeId('Иван Петров')).toBe(false);
+      await expect(
+        resolveTarget({ cfg: {}, input: 'bitrix24:2172', normalized: 'bitrix24:2172' }),
+      ).resolves.toEqual({ to: '2172', kind: 'user' });
+      await expect(
+        resolveTarget({ cfg: {}, input: 'chat15762', normalized: 'chat15762' }),
+      ).resolves.toMatchObject({ to: 'chat15762', kind: 'group' });
+      await expect(
+        resolveTarget({ cfg: {}, input: 'not-a-dialog', normalized: 'not-a-dialog' }),
+      ).resolves.toBeNull();
+    });
+
     it('falls back to the default account when accountId is absent', async () => {
       const spy = vi
         .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')

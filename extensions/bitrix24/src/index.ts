@@ -113,6 +113,21 @@ export default function register(api: any): void {
         listAccountIds: () => channel.listAccountIds(),
         resolveAccount: (_cfg: any, accountId: string) => channel.resolveAccount(accountId),
       },
+      messaging: {
+        targetResolver: {
+          // Bitrix dialog ids are short numerics ("2172") or "chatNN" for group
+          // chats; both fail the host's generic id heuristic (needs 6+ digits),
+          // which sends every message-tool target to a directory lookup this
+          // plugin does not provide -> `Unknown target "2172" for Bitrix24.`
+          looksLikeId: (raw: string) => /^(bitrix24:)?(chat)?\d+$/i.test(String(raw ?? '').trim()),
+          hint: 'Use the numeric Bitrix24 dialog id (e.g. "2172"), or "chatNN" for group chats.',
+          resolveTarget: async ({ input }: { input: string }) => {
+            const to = String(input ?? '').trim().replace(/^bitrix24:/i, '');
+            if (!/^(chat)?\d+$/i.test(to)) return null;
+            return { to, kind: /^chat/i.test(to) ? 'group' : 'user' } as const;
+          },
+        },
+      },
       outbound: {
         deliveryMode: 'direct',
         // Host contract: ChannelOutboundContext `{ cfg, to, text, accountId, ... }`
