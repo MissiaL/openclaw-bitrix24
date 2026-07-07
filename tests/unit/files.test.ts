@@ -154,4 +154,70 @@ describe('downloadFile', () => {
     expect(result.mimeType).toBe('application/octet-stream');
     client.destroy();
   });
+
+  // The live FILE_ID inbound shape carries NO metadata, and imbot.v2.File.download
+  // returns only a URL — the HTTP response headers are the only source of the
+  // real filename/type. Without this, every inbound file reached the agent as a
+  // nameless application/octet-stream (observed live 2026-07-07).
+  it('recovers filename and mime type from the download response headers', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: { result: { downloadUrl: 'https://test.bitrix24.ru/dl?token=x' } },
+    });
+    mockGet.mockResolvedValueOnce({
+      data: Buffer.from('%PDF'),
+      headers: {
+        'content-type': 'application/pdf; charset=binary',
+        'content-disposition': `attachment; filename="fallback.pdf"; filename*=UTF-8''%D0%A1%D1%87%D1%91%D1%82.pdf`,
+      },
+    });
+
+    const client = makeClient();
+    const result = await downloadFile(client, { botId: 456, botToken: 'bottok', fileId: 42 });
+
+    expect(result.fileName).toBe('Счёт.pdf');
+    expect(result.mimeType).toBe('application/pdf');
+    client.destroy();
+  });
+
+  it('uses the plain filename= form and header content-type when no RFC5987 name is present', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: { result: { downloadUrl: 'https://test.bitrix24.ru/dl?token=x' } },
+    });
+    mockGet.mockResolvedValueOnce({
+      data: Buffer.from('x'),
+      headers: {
+        'content-type': 'image/png',
+        'content-disposition': 'attachment; filename="photo.png"',
+      },
+    });
+
+    const client = makeClient();
+    const result = await downloadFile(client, { botId: 456, botToken: 'bottok', fileId: 7 });
+
+    expect(result.fileName).toBe('photo.png');
+    expect(result.mimeType).toBe('image/png');
+    client.destroy();
+  });
+
+  it('explicit fileName param still wins over headers', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: { result: { downloadUrl: 'https://test.bitrix24.ru/dl?token=x' } },
+    });
+    mockGet.mockResolvedValueOnce({
+      data: Buffer.from('x'),
+      headers: { 'content-disposition': 'attachment; filename="other.bin"' },
+    });
+
+    const client = makeClient();
+    const result = await downloadFile(client, {
+      botId: 456,
+      botToken: 'bottok',
+      fileId: 7,
+      fileName: 'report.pdf',
+    });
+
+    expect(result.fileName).toBe('report.pdf');
+    expect(result.mimeType).toBe('application/pdf');
+    client.destroy();
+  });
 });

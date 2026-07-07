@@ -84,11 +84,20 @@ export async function downloadFile(
     },
   );
 
-  const buffer = await client.downloadFile(downloadUrl);
-  const fileName = params.fileName ?? `file-${params.fileId}`;
-  const mimeType = guessMimeType(fileName);
+  const downloaded = await client.downloadFile(downloadUrl);
+  // Explicit caller-supplied name wins; otherwise the download response's
+  // Content-Disposition is the only real name source (the live FILE_ID
+  // inbound shape carries no metadata at all).
+  const fileName = params.fileName ?? downloaded.fileName ?? `file-${params.fileId}`;
+  const guessed = guessMimeType(fileName);
+  // Prefer the extension-based guess when it is specific; fall back to the
+  // response Content-Type for extensionless names.
+  const mimeType =
+    guessed !== 'application/octet-stream'
+      ? guessed
+      : (downloaded.contentType ?? guessed);
 
-  return { buffer, fileName, mimeType };
+  return { buffer: downloaded.buffer, fileName, mimeType };
 }
 
 /**

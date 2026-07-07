@@ -258,8 +258,15 @@ export class Bitrix24Client {
   /**
    * Download a file from Bitrix24 by its download URL.
    * Automatically refreshes OAuth tokens if expired.
+   *
+   * Returns the response headers' filename/content-type when present — the
+   * live inbound FILE_ID shape carries no metadata and imbot.v2.File.download
+   * returns only a URL, so these headers are the only source of the real
+   * file name and type.
    */
-  async downloadFile(downloadUrl: string): Promise<Buffer> {
+  async downloadFile(
+    downloadUrl: string,
+  ): Promise<{ buffer: Buffer; fileName?: string; contentType?: string }> {
     await this.refreshIfNeeded();
     await this.limiter.acquire();
 
@@ -270,7 +277,7 @@ export class Bitrix24Client {
 
     try {
       const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-      return Buffer.from(response.data);
+      return toDownloadedFile(response);
     } catch (err) {
       if (this.canRefresh() && isAxiosAuthError(err)) {
         await this.forceRefresh();
@@ -281,7 +288,7 @@ export class Bitrix24Client {
           ? `${downloadUrl}${downloadUrl.includes('?') ? '&' : '?'}auth=${retryAuth.auth}`
           : downloadUrl;
         const response = await axios.get(retryUrl, { responseType: 'arraybuffer', timeout: 60000 });
-        return Buffer.from(response.data);
+        return toDownloadedFile(response);
       }
       throw err;
     }
@@ -355,6 +362,43 @@ export class Bitrix24Client {
   destroy(): void {
     this.limiter.destroy();
   }
+}
+
+/**
+ * Normalize a file-download axios response: bytes plus the header-derived
+ * filename (RFC 5987 `filename*=` preferred over plain `filename=`) and
+ * content type (parameters like `; charset=binary` stripped).
+ */
+function toDownloadedFile(response: {
+  data: ArrayBuffer | Buffer;
+  headers?: Record<string, unknown>;
+}): { buffer: Buffer; fileName?: string; contentType?: string } {
+  const headers = response.headers ?? {};
+  const rawType = headers['content-type'];
+  const contentType =
+    typeof rawType === 'string' && rawType.trim() !== ''
+      ? rawType.split(';')[0].trim().toLowerCase()
+      : undefined;
+
+  let fileName: string | undefined;
+  const disposition = headers['content-disposition'];
+  if (typeof disposition === 'string') {
+    const extended = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(disposition);
+    if (extended) {
+      try {
+        fileName = decodeURIComponent(extended[1].trim());
+      } catch {
+        // Malformed percent-encoding — fall through to the plain form.
+      }
+    }
+    if (!fileName) {
+      const plain = /filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;\s]+)/.exec(disposition);
+      const raw = plain?.[1] ?? plain?.[2];
+      if (raw) fileName = raw.trim();
+    }
+  }
+
+  return { buffer: Buffer.from(response.data as ArrayBuffer), fileName, contentType };
 }
 
 /**
