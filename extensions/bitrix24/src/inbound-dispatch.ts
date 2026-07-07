@@ -5,31 +5,32 @@ import type { Bitrix24Channel } from './channel.js';
 /**
  * Wire the missing inbound -> agent path: registers `channel.onMessage(...)`
  * so a Bitrix24 webhook event (already parsed into `IncomingMessage`) reaches
- * the openclaw agent via `runtime.channel.inbound.dispatchReply`, and any
- * agent reply is delivered back to the same dialog.
+ * the openclaw agent and any agent reply is delivered back to the same dialog.
  *
- * LIVE-TUNE (whole module): this is scaffolding. The `api.runtime.channel.*`
- * shapes below are modeled on the bundled IRC channel's `inbound.ts` (per
- * the task brief) — we cannot import it (hard constraint: no `openclaw/*`
- * imports), so every field/arg name is a best guess that must be verified
- * against the real host tomorrow. Every guess is logged so a human can
- * compare intended vs. actual shapes from production logs and adjust this
- * file. Never let a shape mismatch here crash the webhook — everything is
- * wrapped in try/catch.
+ * Modeled on the bundled webhook-bot channels (feishu / googlechat / line),
+ * which are the closest analogs to Bitrix24. The full flow is:
+ *   1. resolve the agent route via `runtime.channel.routing.resolveAgentRoute`
+ *      (gives the concrete agentId + sessionKey — a hand-made route makes the
+ *      reply pipeline no-op, so this step is load-bearing);
+ *   2. resolve the session store path via `runtime.channel.session.resolveStorePath`;
+ *   3. finalize the inbound context via `runtime.channel.reply.finalizeInboundContext`;
+ *   4. run the turn via `runtime.channel.inbound.run({ adapter: { ingest, resolveTurn } })`,
+ *      whose `delivery.deliver` sends the assembled reply back with `sendTextMessage`.
  *
- * NOTE: the openclaw logger does NOT do printf-style `%s` substitution — it
- * prints the format string literally. All diagnostics here use template
- * literals so the real values show up in production logs.
+ * Everything comes from the injected `api.runtime.channel.*` (typed `any`), so
+ * there are no `openclaw/*` imports. Never let a shape mismatch crash the
+ * webhook — the whole handler is wrapped in try/catch.
+ *
+ * NOTE: the openclaw logger does NOT do printf `%s` substitution; all
+ * diagnostics use template literals.
  */
 // Verbose diagnostics include user message content / reply bodies (PII from a
-// live portal). They are OFF by default and only emitted when BITRIX24_DEBUG is
-// set — enable it for a live-tuning session, then unset it in production.
+// live portal). OFF by default; enabled only when BITRIX24_DEBUG is set.
 const debugPayloads = (): boolean => Boolean(process.env.BITRIX24_DEBUG);
 
 export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
   channel.onMessage(async (accountId: string, msg: IncomingMessage) => {
     try {
-      // Entry log: structural fields always; message content only under debug.
       const textDiag = debugPayloads()
         ? ` text=${JSON.stringify((msg.text ?? '').slice(0, 200))}`
         : '';
@@ -39,49 +40,45 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       );
 
       const rc = api.runtime?.channel;
-      if (!rc?.inbound?.dispatchReply) {
+      if (!rc?.inbound?.run || typeof rc.routing?.resolveAgentRoute !== 'function') {
         api.logger.warn(
-          '[bitrix24] runtime.channel.inbound.dispatchReply unavailable — inbound not delivered to agent',
+          '[bitrix24] runtime.channel.inbound.run / routing.resolveAgentRoute unavailable — inbound not delivered to agent',
         );
         return;
       }
 
-      // Inbound text from Bitrix24 arrives as BB-code; the agent expects
-      // Markdown. (Outbound Markdown -> BB-code conversion already happens
-      // inside `channel.sendTextMessage` — untouched here.)
-      const body = bbCodeToMarkdown(msg.text ?? '');
+      const isGroup = msg.chatType === 'C';
 
-      // LIVE-TUNE: IRC resolves a route (agentId/sessionKey/storePath) via an
-      // SDK helper we cannot import. Instead we derive a stable session key
-      // from account + dialog, and leave agentId/storePath undefined so the
-      // host falls back to its own defaults. Verify tomorrow whether the
-      // host actually defaults these when absent, or whether it needs an
-      // explicit agentId.
-      const sessionKey = `bitrix24:${accountId}:${msg.dialogId}`;
-      // The reply pipeline needs a concrete agent to run; without it the turn
-      // produces no model call and returns empty. Sessions are recorded under
-      // `agent:main:...`, so default to 'main' (overridable via config).
-      const agentId =
-        api.config?.channels?.bitrix24?.agentId ?? api.config?.agents?.defaultAgentId ?? 'main';
-      // The host's session recorder requires a non-empty storePath; resolve it
-      // from the configured session store via the runtime helper (falls back to
-      // the store path string itself if the helper is absent).
+      // 1) Resolve the agent route (concrete agentId + sessionKey). This is what
+      // makes the reply pipeline actually run the agent.
+      const route = rc.routing.resolveAgentRoute({
+        cfg: api.config,
+        channel: 'bitrix24',
+        accountId,
+        peer: { kind: isGroup ? 'group' : 'direct', id: String(msg.dialogId) },
+      });
+      const agentId = route?.agentId;
+      const sessionKey = route?.sessionKey;
+      const routeAccountId = route?.accountId ?? accountId;
+
+      // 2) Session store path (host session recorder requires a non-empty one).
       const storePath =
         (typeof rc.session?.resolveStorePath === 'function'
           ? rc.session.resolveStorePath(api.config?.session?.store, { agentId })
           : api.config?.session?.store) || undefined;
+
       api.logger.info(
-        `[bitrix24] LIVE-TUNE: sessionKey=${sessionKey} storePath=${storePath ?? '(none)'} agentId=${agentId}`,
+        `[bitrix24] route resolved agentId=${agentId} sessionKey=${sessionKey} ` +
+          `matchedBy=${route?.matchedBy} storePath=${storePath ?? '(none)'}`,
       );
 
+      // Inbound text is BB-code; the agent wants Markdown. (Outbound Markdown ->
+      // BB-code happens inside sendTextMessage.)
+      const body = bbCodeToMarkdown(msg.text ?? '');
       const senderName =
         [msg.fromUserName, msg.fromUserLastName].filter(Boolean).join(' ').trim() || undefined;
 
-      // LIVE-TUNE: raw context fields mirrored from IRC's finalizeInboundContext
-      // call. Field names/values (esp. ChatType's expected enum, and whether
-      // Timestamp should be the event's own timestamp vs. wall-clock "now" —
-      // IncomingMessage carries no inbound timestamp) need confirming against
-      // the real host tomorrow.
+      // 3) Finalize inbound context.
       const rawCtx = {
         Body: body,
         RawBody: msg.text ?? '',
@@ -89,104 +86,108 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
         From: `bitrix24:${msg.fromUserId}`,
         To: `bitrix24:${msg.dialogId}`,
         SessionKey: sessionKey,
-        AccountId: accountId,
-        ChatType: msg.chatType === 'C' ? 'group' : 'direct',
+        AccountId: routeAccountId,
+        ChatType: isGroup ? 'group' : 'direct',
         ConversationLabel: msg.dialogId,
         SenderName: senderName,
         SenderId: String(msg.fromUserId),
         Provider: 'bitrix24',
         Surface: 'bitrix24',
-        // Host maps MessageSid -> sourceMessageId and calls `.trim()` on it, so
-        // it MUST be a string (Bitrix message ids arrive as numbers).
+        // Host maps MessageSid -> sourceMessageId and calls `.trim()`, so it MUST
+        // be a string (Bitrix message ids arrive as numbers).
         MessageSid: String(msg.messageId),
         Timestamp: Date.now(),
         OriginatingChannel: 'bitrix24',
         OriginatingTo: `bitrix24:${msg.dialogId}`,
       };
-
-      // Defensive: only call finalizeInboundContext if the host actually
-      // exposes it — fall back to the raw object otherwise so a missing
-      // helper never blocks delivery.
       const ctxPayload =
         typeof rc.reply?.finalizeInboundContext === 'function'
           ? rc.reply.finalizeInboundContext(rawCtx)
           : rawCtx;
 
-      const dispatchArgs = {
-        cfg: api.config,
-        channel: 'bitrix24',
-        accountId,
-        agentId,
-        routeSessionKey: sessionKey,
-        storePath,
-        ctxPayload,
-        recordInboundSession: rc.session?.recordInboundSession,
-        dispatchReplyWithBufferedBlockDispatcher: rc.reply?.dispatchReplyWithBufferedBlockDispatcher,
-        delivery: {
-          // LIVE-TUNE: the real delivery payload shape is unknown offline.
-          // Defensive default per brief: try `payload.text`, then
-          // `payload.body`, else empty. Log the actual keys seen in
-          // production so this can be tightened tomorrow.
-          deliver: async (payload: any) => {
-            try {
-              const keys =
-                payload && typeof payload === 'object' ? Object.keys(payload) : payload;
-              const sample = debugPayloads()
-                ? ` sample=${JSON.stringify(payload).slice(0, 400)}`
-                : '';
-              api.logger.info(
-                `[bitrix24] LIVE-TUNE delivery payload keys=${JSON.stringify(keys)}${sample}`,
-              );
-              const text = payload?.text ?? payload?.body ?? '';
-              if (!text) {
-                api.logger.warn(
-                  `[bitrix24] delivery payload had no text/body to send (dialog=${msg.dialogId})`,
-                );
-                return;
-              }
-              await channel.sendTextMessage(accountId, msg.dialogId, text);
-              api.logger.info(
-                `[bitrix24] reply delivered to dialog=${msg.dialogId} (${String(text).length} chars)`,
-              );
-            } catch (err) {
-              api.logger.error(
-                `[bitrix24] delivery to dialog=${msg.dialogId} failed: ${String(err)}`,
-              );
-            }
-          },
-          onError: (err: unknown, info: unknown) => {
-            api.logger.error(
-              `[bitrix24] dispatchReply delivery error info=${JSON.stringify(info)} err=${String(err)}`,
-            );
-          },
-        },
-        replyPipeline: {},
-        replyOptions: {},
-        record: {
-          onRecordError: (err: unknown) => {
-            api.logger.warn(`[bitrix24] failed recording inbound session: ${String(err)}`);
-          },
-        },
-      };
-
-      // Diagnostic before dispatch. Never log `cfg` (it is api.config — full of
-      // secrets: gateway token, other channels' bot tokens). Under debug, log
-      // only the ctxPayload (message content is PII but the whole point of the
-      // debug session); always log which host helpers resolved.
       if (debugPayloads()) {
         api.logger.info(
-          `[bitrix24] LIVE-TUNE ctxPayload=${JSON.stringify(ctxPayload).slice(0, 2000)}`,
+          `[bitrix24] ctxPayload=${JSON.stringify(ctxPayload).slice(0, 2000)}`,
         );
       }
+
+      // Deliver the agent's reply back to the same Bitrix dialog. Send on the
+      // final assembled block to avoid emitting partial streamed chunks as
+      // separate messages.
+      const deliver = async (payload: any, info?: any) => {
+        try {
+          const kind = info?.kind;
+          const keys = payload && typeof payload === 'object' ? Object.keys(payload) : payload;
+          const sample = debugPayloads() ? ` sample=${JSON.stringify(payload).slice(0, 400)}` : '';
+          api.logger.info(
+            `[bitrix24] delivery kind=${kind} payload keys=${JSON.stringify(keys)}${sample}`,
+          );
+          // Only send the final consolidated reply (skip intermediate blocks).
+          if (kind && kind !== 'final') return undefined;
+          const text = payload?.text ?? payload?.body ?? '';
+          if (!text) {
+            api.logger.warn(`[bitrix24] final reply had no text (dialog=${msg.dialogId})`);
+            return undefined;
+          }
+          await channel.sendTextMessage(routeAccountId, msg.dialogId, text);
+          api.logger.info(
+            `[bitrix24] reply delivered to dialog=${msg.dialogId} (${String(text).length} chars)`,
+          );
+        } catch (err) {
+          api.logger.error(`[bitrix24] delivery to dialog=${msg.dialogId} failed: ${String(err)}`);
+        }
+        return undefined;
+      };
+
+      // 4) Run the inbound turn (feishu/googlechat pattern).
       api.logger.info(
-        `[bitrix24] LIVE-TUNE dispatch sessionKey=${sessionKey} storePath=${storePath ?? '(none)'} ` +
+        `[bitrix24] dispatch via inbound.run agentId=${agentId} session=${sessionKey} ` +
           `hasFinalize=${typeof rc.reply?.finalizeInboundContext === 'function'} ` +
-          `hasRecord=${typeof rc.session?.recordInboundSession === 'function'} ` +
           `hasBufferedDispatcher=${typeof rc.reply?.dispatchReplyWithBufferedBlockDispatcher === 'function'}`,
       );
-
-      await rc.inbound.dispatchReply(dispatchArgs);
-      api.logger.info(`[bitrix24] dispatchReply returned for dialog=${msg.dialogId}`);
+      await rc.inbound.run({
+        channel: 'bitrix24',
+        accountId: routeAccountId,
+        raw: msg,
+        adapter: {
+          ingest: () => ({
+            id: String(msg.messageId),
+            timestamp: Date.now(),
+            rawText: msg.text ?? '',
+            textForAgent: body,
+            textForCommands: body,
+            raw: msg,
+          }),
+          resolveTurn: () => ({
+            cfg: api.config,
+            channel: 'bitrix24',
+            accountId: routeAccountId,
+            agentId,
+            routeSessionKey: sessionKey,
+            storePath,
+            ctxPayload,
+            recordInboundSession: rc.session?.recordInboundSession,
+            dispatchReplyWithBufferedBlockDispatcher:
+              rc.reply?.dispatchReplyWithBufferedBlockDispatcher,
+            delivery: {
+              deliver,
+              onError: (err: unknown, info: unknown) => {
+                api.logger.error(
+                  `[bitrix24] delivery error info=${JSON.stringify(info)} err=${String(err)}`,
+                );
+              },
+            },
+            replyPipeline: {},
+            replyOptions: {},
+            record: {
+              onRecordError: (err: unknown) => {
+                api.logger.warn(`[bitrix24] failed recording inbound session: ${String(err)}`);
+              },
+            },
+          }),
+        },
+      });
+      api.logger.info(`[bitrix24] inbound.run returned for dialog=${msg.dialogId}`);
     } catch (err) {
       api.logger.error(`[bitrix24] inbound dispatch failed: ${String(err)}`);
     }

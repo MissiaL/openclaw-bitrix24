@@ -29,10 +29,40 @@ function makeFakeChannel() {
       callback = cb;
     }),
     sendTextMessage: vi.fn().mockResolvedValue(undefined),
-    // Test helper, not part of the real Bitrix24Channel surface.
     trigger: async (accountId: string, msg: IncomingMessage) => {
       await callback?.(accountId, msg);
     },
+  };
+}
+
+/**
+ * Build a fake runtime.channel mirroring the feishu/googlechat inbound API:
+ * routing.resolveAgentRoute + inbound.run(adapter). `run` invokes the adapter's
+ * resolveTurn and exposes the resolved turn (incl. delivery) for assertions.
+ */
+function makeRuntime() {
+  const run = vi.fn(async (params: any) => {
+    const turn = params.adapter.resolveTurn();
+    (run as any).lastTurn = turn;
+    (run as any).lastRunParams = params;
+  });
+  const resolveAgentRoute = vi.fn(() => ({
+    agentId: 'main',
+    sessionKey: 'agent:main:bitrix24:acct-1:chat42',
+    accountId: ACCOUNT_ID,
+    matchedBy: 'default',
+  }));
+  return {
+    runtime: {
+      channel: {
+        routing: { resolveAgentRoute },
+        inbound: { run },
+        reply: { finalizeInboundContext: (ctx: any) => ({ ...ctx, finalized: true }) },
+        session: { resolveStorePath: () => '/store/sessions.json', recordInboundSession: vi.fn() },
+      },
+    },
+    run,
+    resolveAgentRoute,
   };
 }
 
@@ -58,125 +88,97 @@ describe('wireInboundDispatch', () => {
     expect(channel.onMessage).toHaveBeenCalledOnce();
   });
 
-  it('dispatches to runtime.channel.inbound.dispatchReply with BB->MD converted Body, correct channel/accountId, and a stable SessionKey', async () => {
-    const dispatchReply = vi.fn().mockResolvedValue(undefined);
-    const api = makeFakeApi({
-      runtime: {
-        channel: {
-          inbound: { dispatchReply },
-          reply: {
-            // Identity passthrough — asserts the raw fields we build, since
-            // the real finalizeInboundContext shape is a LIVE-TUNE unknown.
-            finalizeInboundContext: (ctx: any) => ctx,
-          },
-        },
-      },
-    });
+  it('resolves the agent route and runs inbound.run with a BB->MD Body and the resolved session/agent', async () => {
+    const { runtime, run, resolveAgentRoute } = makeRuntime();
+    const api = makeFakeApi({ runtime });
 
     wireInboundDispatch(api as any, channel as any);
-    const msg = makeIncomingMessage({ text: '[b]hi[/b]', dialogId: 'chat42' });
-    await channel.trigger(ACCOUNT_ID, msg);
+    await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ text: '[b]hi[/b]', dialogId: 'chat42' }));
 
-    expect(dispatchReply).toHaveBeenCalledOnce();
-    const args = dispatchReply.mock.calls[0][0];
-    expect(args.channel).toBe('bitrix24');
-    expect(args.accountId).toBe(ACCOUNT_ID);
-    expect(args.ctxPayload.Body).toContain('**hi**');
-    expect(args.ctxPayload.SessionKey).toBe(`bitrix24:${ACCOUNT_ID}:chat42`);
-    expect(args.routeSessionKey).toBe(`bitrix24:${ACCOUNT_ID}:chat42`);
+    expect(resolveAgentRoute).toHaveBeenCalledOnce();
+    const routeArgs = resolveAgentRoute.mock.calls[0][0];
+    expect(routeArgs.channel).toBe('bitrix24');
+    expect(routeArgs.accountId).toBe(ACCOUNT_ID);
+    expect(routeArgs.peer).toEqual({ kind: 'direct', id: 'chat42' });
+
+    expect(run).toHaveBeenCalledOnce();
+    const turn = (run as any).lastTurn;
+    expect(turn.channel).toBe('bitrix24');
+    expect(turn.accountId).toBe(ACCOUNT_ID);
+    expect(turn.agentId).toBe('main');
+    expect(turn.routeSessionKey).toBe('agent:main:bitrix24:acct-1:chat42');
+    expect(turn.ctxPayload.Body).toContain('**hi**');
+    expect(turn.ctxPayload.finalized).toBe(true);
+    expect(turn.ctxPayload.MessageSid).toBe('100');
   });
 
-  it('delivery.deliver sends payload.text back to the dialog via channel.sendTextMessage', async () => {
-    let capturedDelivery: any;
-    const dispatchReply = vi.fn().mockImplementation(async (args: any) => {
-      capturedDelivery = args.delivery;
-    });
-    const api = makeFakeApi({
-      runtime: {
-        channel: {
-          inbound: { dispatchReply },
-          reply: { finalizeInboundContext: (ctx: any) => ctx },
-        },
-      },
-    });
+  it('delivery.deliver sends the final reply text back to the dialog via sendTextMessage', async () => {
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
 
     wireInboundDispatch(api as any, channel as any);
     await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
 
-    expect(capturedDelivery).toBeDefined();
-    await capturedDelivery.deliver({ text: 'hi' });
+    const delivery = (run as any).lastTurn.delivery;
+    await delivery.deliver({ text: 'hi' }, { kind: 'final' });
 
     expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'hi');
   });
 
-  it('delivery.deliver falls back to payload.body when payload.text is absent', async () => {
-    let capturedDelivery: any;
-    const dispatchReply = vi.fn().mockImplementation(async (args: any) => {
-      capturedDelivery = args.delivery;
-    });
-    const api = makeFakeApi({
-      runtime: {
-        channel: {
-          inbound: { dispatchReply },
-          reply: { finalizeInboundContext: (ctx: any) => ctx },
-        },
-      },
-    });
+  it('delivery.deliver skips intermediate (non-final) blocks', async () => {
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
 
     wireInboundDispatch(api as any, channel as any);
     await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
 
-    await capturedDelivery.deliver({ body: 'from body field' });
+    const delivery = (run as any).lastTurn.delivery;
+    await delivery.deliver({ text: 'partial' }, { kind: 'block' });
+
+    expect(channel.sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('delivery.deliver falls back to payload.body when text is absent', async () => {
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
+
+    wireInboundDispatch(api as any, channel as any);
+    await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
+
+    const delivery = (run as any).lastTurn.delivery;
+    await delivery.deliver({ body: 'from body field' }, { kind: 'final' });
 
     expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'from body field');
   });
 
-  it('delivery.deliver does not call sendTextMessage when payload has neither text nor body', async () => {
-    let capturedDelivery: any;
-    const dispatchReply = vi.fn().mockImplementation(async (args: any) => {
-      capturedDelivery = args.delivery;
-    });
-    const api = makeFakeApi({
-      runtime: {
-        channel: {
-          inbound: { dispatchReply },
-          reply: { finalizeInboundContext: (ctx: any) => ctx },
-        },
-      },
-    });
+  it('delivery.deliver does not send when the final payload has neither text nor body', async () => {
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
 
     wireInboundDispatch(api as any, channel as any);
     await channel.trigger(ACCOUNT_ID, makeIncomingMessage());
 
-    await capturedDelivery.deliver({ someOtherField: 1 });
+    const delivery = (run as any).lastTurn.delivery;
+    await delivery.deliver({ someOtherField: 1 }, { kind: 'final' });
 
     expect(channel.sendTextMessage).not.toHaveBeenCalled();
     expect(api.logger.warn).toHaveBeenCalled();
   });
 
   it('delivery.deliver catches a sendTextMessage failure without throwing', async () => {
-    let capturedDelivery: any;
-    const dispatchReply = vi.fn().mockImplementation(async (args: any) => {
-      capturedDelivery = args.delivery;
-    });
-    const api = makeFakeApi({
-      runtime: {
-        channel: {
-          inbound: { dispatchReply },
-          reply: { finalizeInboundContext: (ctx: any) => ctx },
-        },
-      },
-    });
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
     channel.sendTextMessage.mockRejectedValueOnce(new Error('boom'));
 
     wireInboundDispatch(api as any, channel as any);
     await channel.trigger(ACCOUNT_ID, makeIncomingMessage());
 
-    await expect(capturedDelivery.deliver({ text: 'hi' })).resolves.toBeUndefined();
+    const delivery = (run as any).lastTurn.delivery;
+    await expect(delivery.deliver({ text: 'hi' }, { kind: 'final' })).resolves.toBeUndefined();
     expect(api.logger.error).toHaveBeenCalled();
   });
 
-  it('logs a warning and does not throw when dispatchReply is unavailable', async () => {
+  it('logs a warning and does not throw when inbound.run / routing are unavailable', async () => {
     const api = makeFakeApi({ runtime: { channel: {} } });
 
     wireInboundDispatch(api as any, channel as any);
@@ -194,16 +196,10 @@ describe('wireInboundDispatch', () => {
     expect(api.logger.warn).toHaveBeenCalled();
   });
 
-  it('never throws even when dispatchReply itself rejects', async () => {
-    const dispatchReply = vi.fn().mockRejectedValue(new Error('host blew up'));
-    const api = makeFakeApi({
-      runtime: {
-        channel: {
-          inbound: { dispatchReply },
-          reply: { finalizeInboundContext: (ctx: any) => ctx },
-        },
-      },
-    });
+  it('never throws even when inbound.run itself rejects', async () => {
+    const { runtime, run } = makeRuntime();
+    run.mockRejectedValueOnce(new Error('host blew up'));
+    const api = makeFakeApi({ runtime });
 
     wireInboundDispatch(api as any, channel as any);
 
