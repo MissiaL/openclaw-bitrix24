@@ -617,7 +617,9 @@ describe('Bitrix24Channel integration', () => {
       expect(sentMessage).toContain('[b]bold[/b]');
       expect(sentMessage).toContain('[i]italic[/i]');
       expect(sentMessage).toContain('[s]strikethrough[/s]');
-      expect(sentMessage).toContain('[code]inline code[/code]');
+      // Inline code degrades to plain text — Bitrix renders [code] as a block.
+      expect(sentMessage).toContain('inline code');
+      expect(sentMessage).not.toContain('[code]inline code[/code]');
       expect(sentMessage).toContain('[url=https://example.com]Link[/url]');
     });
 
