@@ -12,3 +12,4 @@ coverage/
 .DS_Store
 *.tgz
 CLAUDE.md
+extensions/bitrix24/package-lock.json
