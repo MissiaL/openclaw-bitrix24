@@ -81,11 +81,20 @@ export async function sendTyping(
   botId: number,
   botToken: string,
   dialogId: string,
+  opts?: {
+    /**
+     * How long the indicator stays visible, 1–600 seconds. A fresh notify
+     * replaces the previous one, so `duration: 1` right after the reply acts
+     * as an explicit "stop" (the API has no cancel call).
+     */
+    duration?: number;
+  },
 ): Promise<void> {
   await client.callMethod('imbot.v2.Chat.InputAction.notify', {
     botId,
     botToken,
     dialogId,
+    ...(opts?.duration !== undefined ? { duration: opts.duration } : {}),
   });
 }
 

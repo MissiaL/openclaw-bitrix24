@@ -272,7 +272,14 @@ describe('wireInboundDispatch', () => {
     expect(typing).toBeDefined();
     expect(typing.keepaliveIntervalMs).toBeGreaterThan(0);
     await typing.start();
-    expect((channel as any).sendTypingIndicator).toHaveBeenCalledWith(ACCOUNT_ID, 'chat42');
+    expect((channel as any).sendTypingIndicator).toHaveBeenCalledWith(ACCOUNT_ID, 'chat42', {
+      duration: 10,
+    });
+    // stop() overwrites the indicator with a 1s one — the API has no cancel.
+    await typing.stop();
+    expect((channel as any).sendTypingIndicator).toHaveBeenLastCalledWith(ACCOUNT_ID, 'chat42', {
+      duration: 1,
+    });
     // A typing failure must be swallowed by onStartError, never crash the turn.
     expect(() => typing.onStartError(new Error('x'))).not.toThrow();
   });

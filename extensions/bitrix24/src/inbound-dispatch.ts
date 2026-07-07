@@ -283,11 +283,22 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
             // and long turns look dead to the user.
             replyPipeline: {
               typing: {
-                start: () => channel.sendTypingIndicator(routeAccountId, msg.dialogId),
+                // duration caps how long one notify stays visible (1-600s);
+                // each keepalive tick replaces the previous one.
+                start: () =>
+                  channel.sendTypingIndicator(routeAccountId, msg.dialogId, { duration: 10 }),
+                // The API has no cancel call — a 1-second notify overwrites
+                // the active indicator so it clears right after the reply
+                // instead of lingering for the rest of its duration.
+                stop: () =>
+                  channel.sendTypingIndicator(routeAccountId, msg.dialogId, { duration: 1 }),
                 onStartError: (err: unknown) => {
                   api.logger.warn(`[bitrix24] typing indicator failed: ${String(err)}`);
                 },
-                // Refresh comfortably inside Bitrix's ~10s indicator TTL, but
+                onStopError: (err: unknown) => {
+                  api.logger.warn(`[bitrix24] typing stop failed: ${String(err)}`);
+                },
+                // Refresh comfortably inside the 10s duration above, but
                 // don't hammer the REST rate limiter.
                 keepaliveIntervalMs: 8_000,
                 // Long tool-using turns run for minutes; default TTL is 60s.

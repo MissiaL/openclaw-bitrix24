@@ -129,12 +129,22 @@ export class Bitrix24Channel {
    * The host's typing keepalive loop calls this periodically for the whole
    * duration of an agent turn.
    */
-  async sendTypingIndicator(accountId: string, dialogId: string): Promise<void> {
+  async sendTypingIndicator(
+    accountId: string,
+    dialogId: string,
+    opts?: { duration?: number },
+  ): Promise<void> {
     const account = this.accountManager.getAccount(accountId);
     if (!account?.botId || !account.bot.clientId) {
       throw new Error(`Account "${accountId}" not configured or bot not registered`);
     }
-    await sendTyping(this.accountManager.getClient(accountId), account.botId, account.bot.clientId, dialogId);
+    await sendTyping(
+      this.accountManager.getClient(accountId),
+      account.botId,
+      account.bot.clientId,
+      dialogId,
+      opts,
+    );
   }
 
   /**
