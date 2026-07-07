@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { bbCodeToMarkdown } from '../../../src/bitrix24/format.js';
 import type { IncomingMessage } from '../../../src/bitrix24/types.js';
 import type { Bitrix24Channel } from './channel.js';
@@ -27,6 +30,48 @@ import type { Bitrix24Channel } from './channel.js';
 // Verbose diagnostics include user message content / reply bodies (PII from a
 // live portal). OFF by default; enabled only when BITRIX24_DEBUG is set.
 const debugPayloads = (): boolean => Boolean(process.env.BITRIX24_DEBUG);
+
+/**
+ * Download inbound Drive attachments and stage them as local temp files in
+ * the host's standard inbound-media shape (`MediaPaths` + `MediaTypes` on the
+ * finalized msg context — the same fields the bundled feishu channel sets).
+ * Best-effort per file: a failed download logs a warning and is skipped, so
+ * the turn degrades to text-only instead of dying.
+ */
+async function stageInboundMedia(
+  api: any,
+  channel: Bitrix24Channel,
+  accountId: string,
+  msg: IncomingMessage,
+): Promise<{ MediaPaths: string[]; MediaTypes: string[] } | undefined> {
+  if (!msg.files?.length) return undefined;
+
+  const paths: string[] = [];
+  const types: string[] = [];
+  let dir: string | undefined;
+  for (const file of msg.files) {
+    try {
+      const media = await channel.downloadAttachment(accountId, file.id, file.name);
+      // One fresh directory per message: file names can't collide across
+      // messages, and the sanitized basename strips any path separators.
+      dir ??= await mkdtemp(join(tmpdir(), 'openclaw-bitrix24-'));
+      const safeName = basename(media.fileName || `file-${file.id}`).replace(/[^\w.-]+/g, '_');
+      const filePath = join(dir, `${file.id}-${safeName}`);
+      await writeFile(filePath, media.buffer);
+      paths.push(filePath);
+      types.push(media.mimeType);
+      api.logger.info(
+        `[bitrix24] staged inbound file id=${file.id} name=${safeName} ` +
+          `type=${media.mimeType} bytes=${media.buffer.length} -> ${filePath}`,
+      );
+    } catch (err) {
+      api.logger.warn(
+        `[bitrix24] failed to download inbound file id=${file.id} (dialog=${msg.dialogId}): ${String(err)} — continuing without it`,
+      );
+    }
+  }
+  return paths.length > 0 ? { MediaPaths: paths, MediaTypes: types } : undefined;
+}
 
 export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
   channel.onMessage(async (accountId: string, msg: IncomingMessage) => {
@@ -78,8 +123,12 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       const senderName =
         [msg.fromUserName, msg.fromUserLastName].filter(Boolean).join(' ').trim() || undefined;
 
+      // Stage inbound file attachments as local media for the agent turn.
+      const media = await stageInboundMedia(api, channel, routeAccountId, msg);
+
       // 3) Finalize inbound context.
       const rawCtx = {
+        ...(media ?? {}),
         Body: body,
         RawBody: msg.text ?? '',
         CommandBody: body,

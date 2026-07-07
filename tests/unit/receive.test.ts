@@ -218,6 +218,38 @@ describe('parseMessageEvent', () => {
     const msg = parseMessageEvent(event);
     expect(msg!.files.map((f) => f.id).sort()).toEqual(['1', '2', '3']);
   });
+
+  // LIVE-VERIFIED 2026-07-07 on portal portal.example.bitrix24.ru: a real
+  // user-attached document arrives as `message.params.FILE_ID: ["915877"]` —
+  // an array of Drive file id STRINGS under the uppercase FILE_ID key. None
+  // of the previously guessed `params.files` shapes fired.
+  it('extracts files from params.FILE_ID array (live-verified v2 shape)', () => {
+    const event = makeMessageEvent({
+      params: { FILE_ID: ['915877'] },
+    });
+    const msg = parseMessageEvent(event);
+    expect(msg!.files).toEqual([{ id: '915877' }]);
+  });
+
+  it('extracts a single scalar params.FILE_ID', () => {
+    const event = makeMessageEvent({
+      params: { FILE_ID: 915877 },
+    });
+    const msg = parseMessageEvent(event);
+    expect(msg!.files).toEqual([{ id: '915877' }]);
+  });
+
+  it('de-duplicates FILE_ID against params.files entries', () => {
+    const event = makeMessageEvent({
+      params: {
+        FILE_ID: ['138'],
+        files: [{ id: 138, name: 'report.pdf', size: 35341 }],
+      },
+    });
+    const msg = parseMessageEvent(event);
+    expect(msg!.files).toHaveLength(1);
+    expect(msg!.files[0]).toEqual({ id: '138', name: 'report.pdf', size: 35341 });
+  });
 });
 
 // ── parseWelcomeEvent ────────────────────────────────────────────────────────

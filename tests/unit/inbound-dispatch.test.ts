@@ -29,6 +29,11 @@ function makeFakeChannel() {
       callback = cb;
     }),
     sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    downloadAttachment: vi.fn().mockResolvedValue({
+      buffer: Buffer.from('file-bytes'),
+      fileName: 'doc.pdf',
+      mimeType: 'application/pdf',
+    }),
     trigger: async (accountId: string, msg: IncomingMessage) => {
       await callback?.(accountId, msg);
     },
@@ -123,6 +128,59 @@ describe('wireInboundDispatch', () => {
     await delivery.deliver({ text: 'hi' }, { kind: 'final' });
 
     expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'hi');
+  });
+
+  // Inbound files (live-verified FILE_ID shape) must reach the agent as
+  // host-standard media context: MediaPaths (local temp files) + MediaTypes.
+  // Without this the model never sees the attachment — observed live: user
+  // sent a document, agent honestly replied it can't see any attachment.
+  describe('inbound file attachments', () => {
+    it('downloads files and exposes MediaPaths/MediaTypes in ctxPayload', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(
+        ACCOUNT_ID,
+        makeIncomingMessage({ files: [{ id: '915877', name: 'doc.pdf' }] }),
+      );
+
+      expect(channel.downloadAttachment).toHaveBeenCalledWith(ACCOUNT_ID, '915877', 'doc.pdf');
+      const ctx = (run as any).lastTurn.ctxPayload;
+      expect(ctx.MediaTypes).toEqual(['application/pdf']);
+      expect(ctx.MediaPaths).toHaveLength(1);
+      const fs = await import('node:fs');
+      expect(fs.readFileSync(ctx.MediaPaths[0], 'utf8')).toBe('file-bytes');
+      expect(ctx.MediaPaths[0]).toContain('doc.pdf');
+    });
+
+    it('a failed download degrades to a text-only turn instead of crashing', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+      channel.downloadAttachment.mockRejectedValueOnce(new Error('boom'));
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(
+        ACCOUNT_ID,
+        makeIncomingMessage({ files: [{ id: '1' }] }),
+      );
+
+      expect(run).toHaveBeenCalledOnce();
+      const ctx = (run as any).lastTurn.ctxPayload;
+      expect(ctx.MediaPaths).toBeUndefined();
+      expect(api.logger.warn).toHaveBeenCalled();
+    });
+
+    it('downloads nothing when the message has no files', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage());
+
+      expect(channel.downloadAttachment).not.toHaveBeenCalled();
+      expect((run as any).lastTurn.ctxPayload.MediaPaths).toBeUndefined();
+    });
   });
 
   it('delivery.deliver skips intermediate (non-final) blocks', async () => {

@@ -44,12 +44,13 @@ const DISK_TOKEN_PATTERNS = [
 /**
  * Defensively extract inbound file attachments from a v2 message event.
  *
- * TODO(live-verify): inbound file shape is undocumented (spec §11) — confirm
- * against a real portal. The v2 docs state only that `message.params` may
- * carry "attach, keyboard, files, and others" (entities.md), with no worked
- * example of a file-bearing `ONIMBOTV2MESSAGEADD` event anywhere in the
- * chat-bots-v2 doc tree. Handles ALL plausible shapes rather than guessing
- * one:
+ * LIVE-VERIFIED 2026-07-07 (portal portal.example.bitrix24.ru): a real
+ * user-attached document arrives as `message.params.FILE_ID: ["915877"]` —
+ * an array of Drive file id STRINGS under the uppercase `FILE_ID` key, with
+ * no name/size metadata (fetch those at download time). The docs never
+ * spell this out (spec §11: params carry "attach, keyboard, files, and
+ * others"), so the previously guessed shapes are kept as fallbacks:
+ *   - `params.FILE_ID` as an ARRAY of scalars or a single scalar (LIVE shape)
  *   - `params.files` as an ARRAY: `[{id, name, size}, ...]`
  *   - `params.files` as an OBJECT MAP: `{someKey: {id, name, size}, ...}`
  *   - `[disk=<N>]` BBCode tokens in `message.text` — the documented
@@ -96,11 +97,22 @@ function extractInboundFiles(
     addFile(String(rawId), name, size);
   };
 
+  // Rich `params.files` entries first, so a bare FILE_ID for the same file
+  // de-duplicates against the entry that carries name/size.
   const filesParam = params?.files;
   if (Array.isArray(filesParam)) {
     filesParam.forEach(addFromRaw);
   } else if (filesParam && typeof filesParam === 'object') {
     Object.values(filesParam as Record<string, unknown>).forEach(addFromRaw);
+  }
+
+  const fileIdParam = params?.FILE_ID;
+  const fileIdList = Array.isArray(fileIdParam) ? fileIdParam : [fileIdParam];
+  for (const rawId of fileIdList) {
+    if (typeof rawId === 'string' || typeof rawId === 'number') {
+      const id = String(rawId).trim();
+      if (id !== '') addFile(id);
+    }
   }
 
   for (const pattern of DISK_TOKEN_PATTERNS) {
