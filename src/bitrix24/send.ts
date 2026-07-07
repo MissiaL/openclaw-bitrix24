@@ -33,9 +33,10 @@ export async function sendMessage(
     // Non-critical — ignore errors
   });
 
-  // 2. Convert and chunk text
+  // 2. Convert and chunk text. A file-only message has empty text — sending
+  // an empty chunk before the upload is wrong (and Bitrix may reject it).
   const bbText = markdownToBBCode(msg.text);
-  const chunks = chunkText(bbText, chunkLimit);
+  const chunks = bbText.trim() === '' ? [] : chunkText(bbText, chunkLimit);
 
   // 3. Send text chunks. Keyboard (if any) is attached to the LAST chunk only
   // — use a numeric loop index rather than `chunks.indexOf(chunk)`, which is
@@ -53,16 +54,18 @@ export async function sendMessage(
     messageIds.push(id);
   }
 
-  // 4. Send media files
+  // 4. Send media files. Their message ids join messageIds so quote-cache
+  // and delivery accounting see file sends too.
   if (msg.media && msg.media.length > 0) {
     for (const media of msg.media) {
-      await sendFile(client, {
+      const sent = await sendFile(client, {
         botId: msg.botId,
         botToken: msg.botClientId,
         dialogId: msg.dialogId,
         fileName: media.fileName,
         fileBuffer: media.buffer,
       });
+      messageIds.push(sent.messageId);
     }
   }
 

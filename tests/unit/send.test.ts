@@ -114,3 +114,56 @@ describe('sendMessage — chunking + keyboard attachment (minor fix a)', () => {
     }
   });
 });
+
+// ── File-only sends (agent-generated outbound files) ─────────────────────────
+
+function makeMediaClient() {
+  return {
+    callMethod: vi.fn((method: string) => {
+      if (method === 'imbot.v2.Chat.Message.send') {
+        return Promise.resolve({ id: 501 });
+      }
+      if (method === 'imbot.v2.File.upload') {
+        return Promise.resolve({
+          file: { id: 9001, name: 'report.txt', extension: 'txt', size: 11 },
+          messageId: 777,
+          chatId: 15762,
+          dialogId: '2172',
+        });
+      }
+      return Promise.resolve({ result: true });
+    }),
+  } as any;
+}
+
+describe('sendMessage — media sends', () => {
+  const media = [{ buffer: Buffer.from('88002000000'), fileName: 'report.txt', mimeType: 'text/plain' }];
+  const base: OutgoingMessage = {
+    botId: 1,
+    botClientId: 'tok',
+    dialogId: '2172',
+    text: '',
+    media,
+  };
+
+  it('does NOT send an empty text chunk for a file-only message', async () => {
+    const client = makeMediaClient();
+    await sendMessage(client, { ...base, text: '' });
+    expect(messageSendCalls(client)).toHaveLength(0);
+    const uploads = client.callMethod.mock.calls.filter((c: any[]) => c[0] === 'imbot.v2.File.upload');
+    expect(uploads).toHaveLength(1);
+  });
+
+  it('collects file message ids into messageIds (quote cache needs them)', async () => {
+    const client = makeMediaClient();
+    const result = await sendMessage(client, { ...base, text: '' });
+    expect(result.messageIds).toEqual(['777']);
+  });
+
+  it('sends text chunk AND file when both are present', async () => {
+    const client = makeMediaClient();
+    const result = await sendMessage(client, { ...base, text: 'вот файл' });
+    expect(messageSendCalls(client)).toHaveLength(1);
+    expect(result.messageIds).toEqual(['501', '777']);
+  });
+});

@@ -2,6 +2,7 @@ import { Bitrix24Channel } from './channel.js';
 import { setBitrix24Runtime } from './runtime.js';
 import { persistConfigValue, DURABLE_AFTER_WRITE, type ConfigMutator } from './persist.js';
 import { wireInboundDispatch } from './inbound-dispatch.js';
+import { loadOutboundMedia } from './outbound-media.js';
 import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
 import { createClientFromWebhook } from '../../../src/bitrix24/client.js';
 import { resolvePublicUrl } from './public-url.js';
@@ -142,6 +143,30 @@ export default function register(api: any): void {
           const dialogId = String(to ?? '').replace(/^bitrix24:/, '');
           const resolvedAccountId = accountId ?? channel.resolveDefaultAccountId();
           const sent = await channel.sendTextMessage(resolvedAccountId, dialogId, text, undefined);
+          return {
+            channel: 'bitrix24',
+            messageId: sent?.messageIds?.[0] ?? '',
+            chatId: dialogId,
+          };
+        },
+        // Agent-generated files: the host passes a local path (or http URL) as
+        // mediaUrl plus a sandboxed mediaReadFile reader. Uploaded via
+        // imbot.v2.File.upload inside sendTextMessage's media path.
+        sendMedia: async ({ to, text, accountId, mediaUrl, mediaReadFile }: {
+          to: string;
+          text: string;
+          accountId?: string | null;
+          mediaUrl?: string;
+          mediaReadFile?: (filePath: string) => Promise<Buffer>;
+        }) => {
+          const dialogId = String(to ?? '').replace(/^bitrix24:/, '');
+          const resolvedAccountId = accountId ?? channel.resolveDefaultAccountId();
+          if (!mediaUrl) {
+            const sent = await channel.sendTextMessage(resolvedAccountId, dialogId, text ?? '', undefined);
+            return { channel: 'bitrix24', messageId: sent?.messageIds?.[0] ?? '', chatId: dialogId };
+          }
+          const media = await loadOutboundMedia(mediaUrl, mediaReadFile);
+          const sent = await channel.sendTextMessage(resolvedAccountId, dialogId, text ?? '', [media]);
           return {
             channel: 'bitrix24',
             messageId: sent?.messageIds?.[0] ?? '',

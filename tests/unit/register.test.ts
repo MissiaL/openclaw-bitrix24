@@ -153,6 +153,35 @@ describe('plugin register(api)', () => {
       ).resolves.toBeNull();
     });
 
+    it('sendMedia uploads the local file with the caption via sendTextMessage media path', async () => {
+      const spy = vi
+        .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')
+        .mockResolvedValue({ messageIds: ['888'] } as any);
+      try {
+        const api = makeFakeApi();
+        register(api);
+        const sendMedia = api.registerChannel.mock.calls[0][0].plugin.outbound.sendMedia;
+        const reader = vi.fn().mockResolvedValue(Buffer.from('txt content'));
+        const result = await sendMedia({
+          cfg: {},
+          to: '2172',
+          text: 'вот файл',
+          accountId: 'default',
+          mediaUrl: '/agent/out/номер.txt',
+          mediaReadFile: reader,
+        });
+        expect(reader).toHaveBeenCalledWith('/agent/out/номер.txt');
+        const [acct, dialog, text, media] = spy.mock.calls[0];
+        expect([acct, dialog, text]).toEqual(['default', '2172', 'вот файл']);
+        expect(media).toHaveLength(1);
+        expect(media![0].fileName).toBe('номер.txt');
+        expect(media![0].buffer.toString()).toBe('txt content');
+        expect(result).toMatchObject({ channel: 'bitrix24', messageId: '888', chatId: '2172' });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('falls back to the default account when accountId is absent', async () => {
       const spy = vi
         .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')
