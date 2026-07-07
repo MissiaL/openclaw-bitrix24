@@ -217,7 +217,7 @@ describe('wireInboundDispatch', () => {
       wireInboundDispatch(api as any, channel as any);
       await channel.trigger(
         ACCOUNT_ID,
-        makeIncomingMessage({ messageId: 200, text: 'original message', fromUserName: 'Даниил', fromUserLastName: 'Петров' }),
+        makeIncomingMessage({ messageId: 200, text: 'original message', fromUserName: 'Иван', fromUserLastName: 'Петров' }),
       );
       await channel.trigger(
         ACCOUNT_ID,
