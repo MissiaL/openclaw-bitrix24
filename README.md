@@ -5,7 +5,7 @@
 <!-- [![CI](https://github.com/rsvbitrix/openclaw-bitrix24/actions/workflows/ci.yml/badge.svg)](https://github.com/rsvbitrix/openclaw-bitrix24/actions) -->
 <!-- [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) -->
 
-Channel plugin and skill that connect your OpenClaw AI agent to Bitrix24. Users chat with the agent through Bitrix24 Messenger, and the agent can manage CRM, tasks, calendar, drive, and messaging on their behalf.
+Channel plugin that connects your OpenClaw AI agent to Bitrix24: users chat with the agent through Bitrix24 Messenger. Pair it with any Bitrix24 REST skill if you want the agent to manage CRM, tasks, calendar, and drive on the portal.
 
 The plugin talks to Bitrix24's current chatbot API, **imbot.v2 (Chatbots 2.0)**, not the deprecated v1 `imbot.*` methods. All events (new message, join chat, bot deleted, ...) arrive on a **single webhook endpoint** per account, `/webhook/bitrix24/<accountId>`, dispatched internally by the event's `event` field (e.g. `ONIMBOTV2MESSAGEADD`). Bitrix24 manages the underlying event subscriptions automatically whenever the bot is registered or updated -- there is no manual `event.bind`/`event.unbind` step.
 
@@ -171,29 +171,6 @@ Bitrix24 imbot.v2 `imbot.v2.*` methods require a stable secret `botToken` tied t
 
 Do not expose this value publicly. It is part of the bot control boundary.
 
-## Skill
-
-The Bitrix24 skill gives your agent knowledge of the Bitrix24 REST API so it can perform actions on behalf of users.
-
-### What it covers
-
-| Module | Capabilities |
-|---|---|
-| **CRM** | Deals, contacts, leads, companies, activities, deal stages |
-| **Tasks** | Create, update, complete, delegate, checklists, comments |
-| **Calendar** | Events, recurring events, attendees, busy/free checks |
-| **Drive** | Storages, folders, files, upload/download, publish to chat |
-| **Chat** | Send messages, notifications, create/manage group chats |
-| **Users** | Search, get by ID, departments, org structure |
-
-### Install separately
-
-```bash
-openclaw skills install bitrix24
-```
-
-The skill uses the same `BITRIX24_WEBHOOK_URL` env var. It teaches the agent the curl-based API call pattern, pagination, filters, batch requests, and error handling for each module.
-
 ## Architecture
 
 ```
@@ -248,14 +225,6 @@ openclaw-bitrix24/
     token.ts                     #   Auth resolution (webhook URL / OAuth / env)
     types.ts                     #   TypeScript interfaces
     webhook-server.ts            #   Single-endpoint Express router for all imbot.v2 events
-  skills/bitrix24/               # OpenClaw skill (agent knowledge)
-    SKILL.md                     #   Skill manifest + API overview
-    crm.md                       #   CRM module reference
-    tasks.md                     #   Tasks module reference
-    calendar.md                  #   Calendar module reference
-    drive.md                     #   Drive module reference
-    chat.md                      #   Chat/messaging module reference
-    users.md                     #   Users & departments reference
   tests/unit/                    # Unit tests
     format.test.ts               #   Markdown/BB-code conversion tests
     receive.test.ts              #   Event parsing tests
