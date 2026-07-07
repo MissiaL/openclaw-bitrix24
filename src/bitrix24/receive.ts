@@ -194,6 +194,45 @@ export function parseMessageEvent(body: Bitrix24MessageEvent): IncomingMessage |
 }
 
 /**
+ * Parse an ONIMBOTV2COMMANDADD event (registered slash command invoked by
+ * typing, keyboard button, or context menu) into the same IncomingMessage
+ * shape as a plain message, with `text` normalized to "/command args" so the
+ * host's native text-command handling picks it up.
+ *
+ * The command payload location is not pinned by docs (TODO(live-verify)):
+ * checked defensively under `data.command` and `data.message.command`, with
+ * `message.text` as-is when it already carries the slash form.
+ */
+export function parseCommandEvent(body: Bitrix24MessageEvent): IncomingMessage | null {
+  const msg = parseMessageEvent(body);
+  if (!msg) return null;
+
+  if (!msg.text.trim().startsWith('/')) {
+    const data = (body as { data?: Record<string, unknown> }).data ?? {};
+    const rawCommand =
+      (data.command as Record<string, unknown> | string | undefined) ??
+      ((data.message as Record<string, unknown> | undefined)?.command as
+        | Record<string, unknown>
+        | string
+        | undefined);
+    const name =
+      typeof rawCommand === 'object' && rawCommand !== null
+        ? String(rawCommand.command ?? rawCommand.name ?? '')
+        : String(rawCommand ?? '');
+    const params =
+      typeof rawCommand === 'object' && rawCommand !== null
+        ? String(rawCommand.params ?? rawCommand.commandParams ?? '')
+        : '';
+    const clean = name.trim().replace(/^\//, '');
+    if (clean !== '') {
+      msg.text = `/${clean}${params.trim() !== '' ? ` ${params.trim()}` : ''}`;
+    }
+  }
+
+  return msg.text.trim().startsWith('/') ? msg : null;
+}
+
+/**
  * Parse a welcome event (ONIMBOTV2JOINCHAT — bot added to chat).
  * dialogId is read from `data.dialogId`, falling back to `data.chat.dialogId`.
  */

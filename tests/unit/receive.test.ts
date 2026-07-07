@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseMessageEvent,
+  parseCommandEvent,
   parseWelcomeEvent,
   parseBotDeleteEvent,
   verifyApplicationToken,
@@ -268,6 +269,34 @@ describe('parseMessageEvent', () => {
     const msg = parseMessageEvent(event);
     expect(msg!.files).toHaveLength(1);
     expect(msg!.files[0]).toEqual({ id: '138', name: 'report.pdf', size: 35341 });
+  });
+});
+
+// ── parseCommandEvent (ONIMBOTV2COMMANDADD) ──────────────────────────────────
+
+describe('parseCommandEvent', () => {
+  it('passes through a message whose text already carries the slash form', () => {
+    const msg = parseCommandEvent(makeMessageEvent({ text: '/status' }));
+    expect(msg!.text).toBe('/status');
+  });
+
+  it('reconstructs "/command params" from data.command when text lacks it', () => {
+    const event = makeMessageEvent({ text: '' }) as any;
+    event.data.command = { command: 'status', params: 'verbose' };
+    const msg = parseCommandEvent(event);
+    expect(msg!.text).toBe('/status verbose');
+  });
+
+  it('handles a bare string command with a leading slash', () => {
+    const event = makeMessageEvent({ text: '' }) as any;
+    event.data.command = '/stop';
+    const msg = parseCommandEvent(event);
+    expect(msg!.text).toBe('/stop');
+  });
+
+  it('returns null when no command can be recovered', () => {
+    const msg = parseCommandEvent(makeMessageEvent({ text: 'просто текст' }));
+    expect(msg).toBeNull();
   });
 });
 

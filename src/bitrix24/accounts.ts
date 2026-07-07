@@ -78,6 +78,7 @@ export class AccountManager {
         botId: raw.botId,
         botCode: raw.botCode,
         dmPolicy: raw.dmPolicy ?? 'open',
+        commandUsers: raw.commandUsers ?? config.commandUsers ?? [],
         applicationToken: raw.applicationToken,
       };
 
@@ -105,6 +106,7 @@ export class AccountManager {
             clientId: deriveBotClientId(auth),
           },
           dmPolicy: 'open',
+          commandUsers: config.commandUsers ?? [],
         });
       }
     }
@@ -260,6 +262,10 @@ export interface RawChannelConfig {
     botId?: number;
     botCode?: string;
     dmPolicy?: 'open' | 'paired';
+    /** Bitrix user ids allowed to run control commands; '*' = everyone. */
+    commandUsers?: string[];
     applicationToken?: string;
   }>;
+  /** Channel-level default for accounts that do not set their own. */
+  commandUsers?: string[];
 }

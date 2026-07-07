@@ -42,19 +42,25 @@ function post(baseUrl: string, path: string, body: unknown): Promise<Response> {
 const ACCOUNT_ID = 'acct-test-123';
 const APP_TOKEN = 'test-app-token-abc';
 
+// The webhook router delivers each message id exactly once (cross-event
+// dedup for MESSAGEADD/COMMANDADD), and this suite shares one app across
+// tests — every fixture event needs a fresh id.
+let nextFixtureMessageId = 5001;
+
 function makeMessageEvent(overrides?: {
   isBot?: string;
   appToken?: string;
   text?: string;
   dialogId?: string;
   chatType?: string;
+  messageId?: string;
 }): Bitrix24MessageEvent {
   return {
     event: 'ONIMBOTV2MESSAGEADD',
     data: {
       bot: { id: '42', code: 'openclaw' },
       message: {
-        id: '5001',
+        id: overrides?.messageId ?? String(nextFixtureMessageId++),
         chatId: '200',
         authorId: '7',
         text: overrides?.text ?? 'Hello bot!',

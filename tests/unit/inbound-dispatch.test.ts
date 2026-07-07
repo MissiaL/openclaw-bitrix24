@@ -260,6 +260,42 @@ describe('wireInboundDispatch', () => {
     });
   });
 
+  // Control commands: only configured commandUsers get CommandAuthorized.
+  describe('command authorization (commandUsers)', () => {
+    it('marks a configured user as CommandAuthorized', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+      (channel as any).getCommandUsers = vi.fn(() => ['7']);
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ fromUserId: 7, text: '/status' }));
+
+      expect((run as any).lastTurn.ctxPayload.CommandAuthorized).toBe(true);
+    });
+
+    it("does NOT authorize a user outside the list (default deny)", async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+      (channel as any).getCommandUsers = vi.fn(() => ['42']);
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ fromUserId: 7, text: '/restart' }));
+
+      expect((run as any).lastTurn.ctxPayload.CommandAuthorized).toBeUndefined();
+    });
+
+    it("'*' authorizes everyone", async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+      (channel as any).getCommandUsers = vi.fn(() => ['*']);
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ fromUserId: 999 }));
+
+      expect((run as any).lastTurn.ctxPayload.CommandAuthorized).toBe(true);
+    });
+  });
+
   it('wires a typing keepalive into the reply pipeline', async () => {
     const { runtime, run } = makeRuntime();
     const api = makeFakeApi({ runtime });

@@ -57,11 +57,27 @@ function applyMutateAndRead(mutateConfigFile: ReturnType<typeof vi.fn>, callInde
   return segments.reduce((node: any, seg) => node?.[seg], draft);
 }
 
+// startupAccount now ensures the slash-command menu (list + register calls).
+// Report the default menu as already registered so ensureCommandMenu is a
+// no-op here — otherwise every startup burns 5 extra rate-limited calls and
+// the suite times out. Menu registration itself is unit-tested in
+// commands.test.ts.
+const COMMANDS_ALREADY_REGISTERED = {
+  commands: ['status', 'new', 'stop', 'restart'].map((c, i) => ({
+    id: i + 1,
+    botId: 42,
+    command: `/${c}`,
+  })),
+};
+
 /** Helper: set up mockPost to return a Bitrix24 API response for a given method. */
 function mockApiResponse(method: string, result: any) {
   mockPost.mockImplementation((url: string) => {
     if (url === `/${method}`) {
       return Promise.resolve({ data: { result } });
+    }
+    if (url === '/imbot.v2.Command.list') {
+      return Promise.resolve({ data: { result: COMMANDS_ALREADY_REGISTERED } });
     }
     // Default: return empty result for any other method (e.g. typing indicator)
     return Promise.resolve({ data: { result: true } });
@@ -74,6 +90,9 @@ function mockApiResponses(responses: Record<string, any>) {
     const method = url.replace('/', '');
     if (method in responses) {
       return Promise.resolve({ data: { result: responses[method] } });
+    }
+    if (method === 'imbot.v2.Command.list') {
+      return Promise.resolve({ data: { result: COMMANDS_ALREADY_REGISTERED } });
     }
     return Promise.resolve({ data: { result: true } });
   });
@@ -186,10 +205,13 @@ describe('Bitrix24Channel integration', () => {
 
       vi.clearAllMocks();
 
-      // Second call should skip
+      // Second call should skip registration; the only allowed API traffic
+      // on this path is the idempotent command-menu check.
       await channel.startupAccount(TEST_ACCOUNT_ID);
 
-      expect(mockPost).not.toHaveBeenCalled();
+      const calledMethods = mockPost.mock.calls.map((c: any[]) => c[0]);
+      expect(calledMethods).not.toContain('/imbot.v2.Bot.register');
+      expect(calledMethods.filter((m: string) => m !== '/imbot.v2.Command.list')).toEqual([]);
       expect(runtime.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('already registered'),
       );

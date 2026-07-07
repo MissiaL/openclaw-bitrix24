@@ -165,10 +165,21 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
         );
       }
 
+      // Control-command authorization: only configured Bitrix user ids may
+      // run /status, /new, /stop, /restart, ... ('*' = everyone). Default is
+      // deny — the bot is reachable by every portal employee, and /restart
+      // must not be. Without CommandAuthorized: true the host treats a
+      // "/command" message as plain agent text.
+      const commandUsers =
+        typeof channel.getCommandUsers === 'function' ? channel.getCommandUsers(routeAccountId) : [];
+      const commandAuthorized =
+        commandUsers.includes('*') || commandUsers.includes(String(msg.fromUserId));
+
       // 3) Finalize inbound context.
       const rawCtx = {
         ...(media ?? {}),
         ...replyCtx,
+        ...(commandAuthorized ? { CommandAuthorized: true } : {}),
         Body: body,
         RawBody: msg.text ?? '',
         CommandBody: body,

@@ -57,6 +57,7 @@
             "enabled": { "type": "boolean", "default": true },
             "textChunkLimit": { "type": "number", "default": 18000 },
             "dmPolicy": { "type": "string", "enum": ["open", "paired"], "default": "open" },
+            "commandUsers": { "type": "array", "items": { "type": "string" }, "description": "Bitrix user ids allowed to run control commands; '*' allows everyone. Empty = commands disabled." },
             "bot": {
               "type": "object",
               "properties": {
@@ -138,6 +139,7 @@
                 "enabled": { "type": "boolean", "default": true },
                 "textChunkLimit": { "type": "number", "default": 18000 },
                 "dmPolicy": { "type": "string", "enum": ["open", "paired"], "default": "open" },
+                "commandUsers": { "type": "array", "items": { "type": "string" }, "description": "Bitrix user ids allowed to run control commands; '*' allows everyone. Empty = commands disabled." },
                 "bot": {
                   "type": "object",
                   "properties": {

@@ -1,6 +1,6 @@
 import express, { Router, type Express, type Request, type Response } from 'express';
 import type { Bitrix24MessageEvent, Bitrix24WelcomeEvent, Bitrix24BotDeleteEvent, IncomingMessage } from './types.js';
-import { parseMessageEvent, parseWelcomeEvent, parseBotDeleteEvent, verifyApplicationToken } from './receive.js';
+import { parseMessageEvent, parseCommandEvent, parseWelcomeEvent, parseBotDeleteEvent, verifyApplicationToken } from './receive.js';
 
 export interface WebhookHandlers {
   onMessage: (accountId: string, msg: IncomingMessage) => void;
@@ -91,6 +91,23 @@ function authenticateAndCapture(
 export function createWebhookRouter(handlers: WebhookHandlers): Router {
   const router = Router();
 
+  // A manually typed "/command" can arrive BOTH as ONIMBOTV2MESSAGEADD and
+  // (once the command is registered) ONIMBOTV2COMMANDADD for the same message
+  // id — deliver each message to the agent exactly once. Insertion order
+  // doubles as LRU order.
+  const seenMessageIds = new Set<string>();
+  const firstDelivery = (accountId: string, messageId: number | string): boolean => {
+    const key = `${accountId}:${messageId}`;
+    if (seenMessageIds.has(key)) return false;
+    seenMessageIds.add(key);
+    while (seenMessageIds.size > 300) {
+      const oldest = seenMessageIds.values().next().value;
+      if (oldest === undefined) break;
+      seenMessageIds.delete(oldest);
+    }
+    return true;
+  };
+
   router.post('/webhook/bitrix24/:accountId', (req: Request, res: Response) => {
     try {
       const accountId = req.params.accountId as string;
@@ -123,7 +140,23 @@ export function createWebhookRouter(handlers: WebhookHandlers): Router {
           }
 
           const msg = parseMessageEvent(body as unknown as Bitrix24MessageEvent);
-          if (msg) {
+          if (msg && firstDelivery(accountId, msg.messageId)) {
+            handlers.onMessage(accountId, msg);
+          }
+          break;
+        }
+
+        case 'ONIMBOTV2COMMANDADD': {
+          // Registered slash-command invocation (typed, keyboard, or menu).
+          // Parsed into the same IncomingMessage shape with a "/command args"
+          // text so the host's native command handling picks it up.
+          if (!authenticateAndCapture(accountId, body, handlers)) {
+            res.status(403).json({ error: 'Invalid application token' });
+            return;
+          }
+
+          const msg = parseCommandEvent(body as unknown as Bitrix24MessageEvent);
+          if (msg && firstDelivery(accountId, msg.messageId)) {
             handlers.onMessage(accountId, msg);
           }
           break;

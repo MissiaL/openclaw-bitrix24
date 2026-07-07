@@ -1,6 +1,7 @@
 import { AccountManager, type RawChannelConfig } from '../../../src/bitrix24/accounts.js';
 import { registerBot, unregisterBot, updateBotEventUrls, ensureWebhookMode } from '../../../src/bitrix24/bot.js';
 import { sendMessage, sendTyping } from '../../../src/bitrix24/send.js';
+import { ensureBotCommands } from '../../../src/bitrix24/commands.js';
 import { downloadFile } from '../../../src/bitrix24/files.js';
 import type { IncomingMessage, MediaAttachment } from '../../../src/bitrix24/types.js';
 import { getBitrix24Runtime } from './runtime.js';
@@ -266,6 +267,7 @@ export class Bitrix24Channel {
       } else {
         runtime.logger.info(`Bitrix24 bot already registered for "${accountId}" (ID: ${account.botId})`);
       }
+      await this.ensureCommandMenu(accountId);
       return;
     }
 
@@ -323,6 +325,41 @@ export class Bitrix24Channel {
       },
     });
     runtime.logger.info(`Bitrix24 bot registered: ${botCode} (ID: ${botId})`);
+    await this.ensureCommandMenu(accountId);
+  }
+
+  /**
+   * Bitrix user ids allowed to run control commands for this account
+   * ('*' = everyone; empty = commands disabled).
+   */
+  getCommandUsers(accountId: string): string[] {
+    return this.accountManager.getAccount(accountId)?.commandUsers ?? [];
+  }
+
+  /**
+   * Idempotently register the bot's slash-command menu (best-effort: a
+   * failure must never break account startup — the commands still work as
+   * plain "/name" text without the menu).
+   */
+  private async ensureCommandMenu(accountId: string): Promise<void> {
+    const runtime = getBitrix24Runtime();
+    const account = this.accountManager.getAccount(accountId);
+    if (!account?.botId || !account.bot.clientId) return;
+    try {
+      const { registered } = await ensureBotCommands(this.accountManager.getClient(accountId), {
+        botId: account.botId,
+        botToken: account.bot.clientId,
+      });
+      if (registered.length > 0) {
+        runtime.logger.info(
+          `Bitrix24 command menu registered for "${accountId}": ${registered.map((c) => `/${c}`).join(', ')}`,
+        );
+      }
+    } catch (err) {
+      runtime.logger.warn(
+        `Bitrix24 command menu registration failed for "${accountId}" (commands still work as plain text): ${String(err)}`,
+      );
+    }
   }
 
   /**

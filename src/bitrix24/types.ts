@@ -74,6 +74,12 @@ export interface AccountConfig {
   botCode?: string;
   dmPolicy: 'open' | 'paired';
   /**
+   * Bitrix user ids allowed to run control commands (/status, /new, /stop,
+   * /restart, ...). '*' allows everyone. Empty/absent = commands disabled
+   * (safe default: the bot is reachable by every portal employee).
+   */
+  commandUsers: string[];
+  /**
    * TOFU-pinned webhook authenticity token (top-level `auth.application_token`,
    * see `verifyApplicationToken` in receive.ts). Undefined until the first
    * webhook event for this account is captured.
