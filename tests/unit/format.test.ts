@@ -14,8 +14,15 @@ describe('markdownToBBCode', () => {
     expect(markdownToBBCode('**bold** and *italic*')).toBe('[b]bold[/b] and [i]italic[/i]');
   });
 
-  it('converts inline code', () => {
-    expect(markdownToBBCode('use `npm install`')).toBe('use [code]npm install[/code]');
+  // LIVE-VERIFIED 2026-07-07: Bitrix Messenger renders [code] as a BLOCK
+  // element, so inline `word` spans used to explode a sentence into separate
+  // lines. There is no inline-code BB tag — degrade to plain text.
+  it('degrades inline code to plain text (no inline [code] tag in Bitrix chat)', () => {
+    expect(markdownToBBCode('use `npm install` now')).toBe('use npm install now');
+  });
+
+  it('keeps multiple inline code spans within one line', () => {
+    expect(markdownToBBCode('scopes: `imbot`, `im`, `disk`')).toBe('scopes: imbot, im, disk');
   });
 
   it('converts code blocks', () => {

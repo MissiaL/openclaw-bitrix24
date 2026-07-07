@@ -14,8 +14,12 @@ export function markdownToBBCode(md: string): string {
   // Code blocks (``` ... ```) → [code]...[/code]  — must be first to protect contents
   text = text.replace(/```[\w]*\n?([\s\S]*?)```/g, '[code]$1[/code]');
 
-  // Inline code (`...`) → [code]...[/code]
-  text = text.replace(/`([^`]+)`/g, '[code]$1[/code]');
+  // Inline code (`...`) → plain text. LIVE-VERIFIED 2026-07-07: Bitrix
+  // Messenger renders [code] as a BLOCK element, so an inline span inside a
+  // sentence explodes the line into fragments ("...нет права / calendar /
+  // ..."). There is no inline-code BB tag in Bitrix chat — dropping the
+  // backticks is the least-bad rendering.
+  text = text.replace(/`([^`\n]+)`/g, '$1');
 
   // Bold (**...**) → [b]...[/b]
   text = text.replace(/\*\*(.+?)\*\*/g, '[b]$1[/b]');
