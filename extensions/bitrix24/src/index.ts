@@ -193,10 +193,23 @@ export default function register(api: any): void {
             chatId: dialogId,
           };
         },
-        // Structured payloads — this is the path the agent's `message` tool
-        // takes when it includes `presentation` (buttons/selects). Without it
-        // the host falls back to sendText and the buttons are lost. Handles
-        // text + optional media + a keyboard mapped from the presentation.
+        // Convert the host's portable presentation (button blocks) into a
+        // Bitrix keyboard and stash it on `channelData.bitrix24`. This hook is
+        // what makes the host route the payload to sendPayload (deliver.ts
+        // dispatches to sendPayload when the payload has presentation /
+        // interactive / channelData) — without it the host strips presentation
+        // and falls back to sendText, losing the buttons.
+        renderPresentation: ({ payload, presentation }: { payload: any; presentation: unknown }) => {
+          const keyboard = presentationToKeyboard(presentation);
+          if (!keyboard) return payload;
+          return {
+            ...payload,
+            channelData: { ...payload?.channelData, bitrix24: { keyboard } },
+          };
+        },
+        // Structured payloads — the path the agent's `message` tool takes with
+        // `presentation`, and where renderPresentation's keyboard arrives (via
+        // channelData). Sends text + optional media + keyboard.
         sendPayload: async ({ to, text, accountId, payload, mediaReadFile }: {
           to: string;
           text?: string;
@@ -207,7 +220,8 @@ export default function register(api: any): void {
           const dialogId = String(to ?? '').replace(/^bitrix24:/, '');
           const resolvedAccountId = accountId ?? channel.resolveDefaultAccountId();
           const bodyText = text ?? payload?.text ?? '';
-          const keyboard = presentationToKeyboard(payload?.presentation);
+          const keyboard =
+            payload?.channelData?.bitrix24?.keyboard ?? presentationToKeyboard(payload?.presentation);
           const mediaUrl = payload?.mediaUrl ?? payload?.mediaUrls?.[0];
           const media = mediaUrl ? [await loadOutboundMedia(mediaUrl, mediaReadFile)] : undefined;
           // Bitrix needs a non-empty MESSAGE to carry a keyboard.

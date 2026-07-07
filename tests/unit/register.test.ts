@@ -132,6 +132,45 @@ describe('plugin register(api)', () => {
     // host's generic id heuristic (/^\+?\d{6,}$/), so without a plugin
     // targetResolver every message-tool send dies with `Unknown target "2172"
     // for Bitrix24.` (observed live, recorded in the portal's .learnings).
+    it('renderPresentation stashes the keyboard on channelData.bitrix24 (routes payload to sendPayload)', () => {
+      const api = makeFakeApi();
+      register(api);
+      const outbound = api.registerChannel.mock.calls[0][0].plugin.outbound;
+      const rendered = outbound.renderPresentation({
+        payload: { text: 'Выберите:' },
+        presentation: {
+          blocks: [{ type: 'buttons', buttons: [{ label: 'Да', action: { type: 'command', value: 'yes' } }] }],
+        },
+      });
+      expect(rendered.channelData.bitrix24.keyboard.BUTTONS[0]).toMatchObject({
+        TEXT: 'Да',
+        COMMAND: 'openclaw_cb',
+        COMMAND_PARAMS: 'yes',
+      });
+    });
+
+    it('sendPayload uses the keyboard from channelData when present', async () => {
+      const spy = vi
+        .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')
+        .mockResolvedValue({ messageIds: ['9'] } as any);
+      try {
+        const api = makeFakeApi();
+        register(api);
+        const outbound = api.registerChannel.mock.calls[0][0].plugin.outbound;
+        const keyboard = { BUTTONS: [{ TEXT: 'X', COMMAND: 'openclaw_cb', COMMAND_PARAMS: 'x' }] };
+        await outbound.sendPayload({
+          cfg: {},
+          to: '2172',
+          text: 'hi',
+          accountId: 'default',
+          payload: { text: 'hi', channelData: { bitrix24: { keyboard } } },
+        });
+        expect(spy.mock.calls[0][4]).toEqual(keyboard);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it('sendPayload renders presentation buttons as a Bitrix keyboard', async () => {
       const spy = vi
         .spyOn(Bitrix24Channel.prototype, 'sendTextMessage')
