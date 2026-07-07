@@ -1,4 +1,5 @@
 import type { Bitrix24Client } from './client.js';
+import { CALLBACK_COMMAND } from './buttons.js';
 
 /**
  * Bot slash-command registration (Chatbots 2.0).
@@ -21,6 +22,8 @@ export interface BotCommandSpec {
   command: string;
   /** Locale map shown in the chat's command menu. */
   title: Record<string, string>;
+  /** Hidden commands work but do not appear in the slash menu. */
+  hidden?: boolean;
 }
 
 /** Default command menu: openclaw built-ins the agent host handles natively. */
@@ -34,6 +37,14 @@ export const DEFAULT_BOT_COMMANDS: BotCommandSpec[] = [
   {
     command: 'restart',
     title: { ru: 'Перезапустить бота на сервере', en: 'Restart the bot on the server' },
+  },
+  // Interactive callback buttons fire ONIMBOTV2COMMANDADD ONLY for a
+  // REGISTERED command — keyboard COMMAND buttons carry this sentinel, so it
+  // must exist or presses are silently dropped. Hidden from the slash menu.
+  {
+    command: CALLBACK_COMMAND,
+    title: { ru: 'Кнопки', en: 'Interactive buttons' },
+    hidden: true,
   },
 ];
 
@@ -66,7 +77,11 @@ export async function ensureBotCommands(
     await client.callMethod('imbot.v2.Command.register', {
       botId: params.botId,
       botToken: params.botToken,
-      fields: { command: spec.command, title: spec.title },
+      fields: {
+        command: spec.command,
+        title: spec.title,
+        ...(spec.hidden ? { hidden: 'Y' } : {}),
+      },
     });
     registered.push(spec.command);
   }

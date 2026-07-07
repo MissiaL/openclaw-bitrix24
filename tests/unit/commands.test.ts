@@ -19,11 +19,11 @@ describe('ensureBotCommands', () => {
       { id: 'def0', botId: 0, command: '/me' },
     ]);
     const result = await ensureBotCommands(client, { botId: 5228, botToken: 'tok' });
-    expect(result.registered).toEqual(['status', 'new', 'stop', 'restart']);
+    expect(result.registered).toEqual(['status', 'new', 'stop', 'restart', 'openclaw_cb']);
     const registerCalls = client.callMethod.mock.calls.filter(
       (c: any[]) => c[0] === 'imbot.v2.Command.register',
     );
-    expect(registerCalls).toHaveLength(4);
+    expect(registerCalls).toHaveLength(5);
     // Live contract: fields.command has no slash, title is a locale map.
     expect(registerCalls[0][1]).toEqual({
       botId: 5228,
@@ -38,7 +38,7 @@ describe('ensureBotCommands', () => {
       { id: 72, botId: 5228, command: '/stop' },
     ]);
     const result = await ensureBotCommands(client, { botId: 5228, botToken: 'tok' });
-    expect(result.registered).toEqual(['new', 'restart']);
+    expect(result.registered).toEqual(['new', 'restart', 'openclaw_cb']);
   });
 
   it('ignores same-named commands that belong to another bot', async () => {

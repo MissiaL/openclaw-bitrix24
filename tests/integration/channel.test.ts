@@ -63,7 +63,7 @@ function applyMutateAndRead(mutateConfigFile: ReturnType<typeof vi.fn>, callInde
 // the suite times out. Menu registration itself is unit-tested in
 // commands.test.ts.
 const COMMANDS_ALREADY_REGISTERED = {
-  commands: ['status', 'new', 'stop', 'restart'].map((c, i) => ({
+  commands: ['status', 'new', 'stop', 'restart', 'openclaw_cb'].map((c, i) => ({
     id: i + 1,
     botId: 42,
     command: `/${c}`,
