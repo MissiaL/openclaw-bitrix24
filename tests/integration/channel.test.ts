@@ -488,6 +488,16 @@ describe('Bitrix24Channel integration', () => {
       });
     });
 
+    it('remembers sent messages for quote (REPLY_ID) resolution', async () => {
+      await channel.sendTextMessage(TEST_ACCOUNT_ID, DIALOG_ID, 'reply body');
+
+      expect(channel.recallMessage(TEST_ACCOUNT_ID, '1001')).toEqual({
+        text: 'reply body',
+        sender: 'bot',
+      });
+      expect(channel.recallMessage(TEST_ACCOUNT_ID, 'nope')).toBeUndefined();
+    });
+
     it('should send typing indicator then message with BB-code', async () => {
       const text = 'Hello **world**';
 

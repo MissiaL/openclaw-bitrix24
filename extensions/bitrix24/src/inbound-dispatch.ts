@@ -131,9 +131,44 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       // Stage inbound file attachments as local media for the agent turn.
       const media = await stageInboundMedia(api, channel, routeAccountId, msg);
 
+      // Remember this message so later REPLY_ID quotes can resolve it; a
+      // file-only message is remembered by its staged file names.
+      const rememberedText =
+        body ||
+        (media
+          ? `[файл: ${media.MediaPaths.map((p) => p.split('/').pop()?.replace(/^\d+-/, '')).join(', ')}]`
+          : '');
+      if (rememberedText) {
+        channel.rememberMessage(routeAccountId, String(msg.messageId), {
+          text: rememberedText,
+          sender: senderName,
+        });
+      }
+
+      // Resolve a quoted message (params.REPLY_ID carries only the id) from
+      // the channel's recent-message cache into the host-standard ReplyTo*
+      // context fields (telegram pattern). A cache miss still sets ReplyToId
+      // so the model knows a quote happened.
+      const quoted = msg.replyToMessageId
+        ? channel.recallMessage(routeAccountId, msg.replyToMessageId)
+        : undefined;
+      const replyCtx = msg.replyToMessageId
+        ? {
+            ReplyToId: msg.replyToMessageId,
+            ...(quoted ? { ReplyToBody: quoted.text } : {}),
+            ...(quoted?.sender ? { ReplyToSender: quoted.sender } : {}),
+          }
+        : {};
+      if (msg.replyToMessageId) {
+        api.logger.info(
+          `[bitrix24] quote resolved replyTo=${msg.replyToMessageId} hit=${Boolean(quoted)}`,
+        );
+      }
+
       // 3) Finalize inbound context.
       const rawCtx = {
         ...(media ?? {}),
+        ...replyCtx,
         Body: body,
         RawBody: msg.text ?? '',
         CommandBody: body,

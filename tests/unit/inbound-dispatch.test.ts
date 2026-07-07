@@ -24,6 +24,7 @@ function makeIncomingMessage(overrides?: Partial<IncomingMessage>): IncomingMess
 
 function makeFakeChannel() {
   let callback: ((accountId: string, msg: IncomingMessage) => void | Promise<void>) | null = null;
+  const remembered = new Map<string, { text: string; sender?: string }>();
   return {
     onMessage: vi.fn((cb: (accountId: string, msg: IncomingMessage) => void | Promise<void>) => {
       callback = cb;
@@ -34,6 +35,12 @@ function makeFakeChannel() {
       fileName: 'doc.pdf',
       mimeType: 'application/pdf',
     }),
+    rememberMessage: vi.fn((accountId: string, messageId: string, entry: any) => {
+      remembered.set(`${accountId}:${messageId}`, entry);
+    }),
+    recallMessage: vi.fn((accountId: string, messageId: string) =>
+      remembered.get(`${accountId}:${messageId}`),
+    ),
     trigger: async (accountId: string, msg: IncomingMessage) => {
       await callback?.(accountId, msg);
     },
@@ -196,6 +203,60 @@ describe('wireInboundDispatch', () => {
 
       expect(channel.downloadAttachment).not.toHaveBeenCalled();
       expect((run as any).lastTurn.ctxPayload.MediaPaths).toBeUndefined();
+    });
+  });
+
+  // Quoting (params.REPLY_ID) carries only the id — the quoted content is
+  // resolved from the channel's recent-message cache into the host-standard
+  // ReplyTo* context fields (telegram pattern).
+  describe('quoted replies (REPLY_ID)', () => {
+    it('resolves a quoted inbound message into ReplyToId/ReplyToBody/ReplyToSender', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(
+        ACCOUNT_ID,
+        makeIncomingMessage({ messageId: 200, text: 'original message', fromUserName: 'Даниил', fromUserLastName: 'Петров' }),
+      );
+      await channel.trigger(
+        ACCOUNT_ID,
+        makeIncomingMessage({ messageId: 201, text: 'what about this?', replyToMessageId: '200' }),
+      );
+
+      const ctx = (run as any).lastTurn.ctxPayload;
+      expect(ctx.ReplyToId).toBe('200');
+      expect(ctx.ReplyToBody).toBe('original message');
+      expect(ctx.ReplyToSender).toBe('Иван Петров');
+    });
+
+    it('sets only ReplyToId on a cache miss', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(
+        ACCOUNT_ID,
+        makeIncomingMessage({ messageId: 300, text: 'quoting the unknown', replyToMessageId: '99999' }),
+      );
+
+      const ctx = (run as any).lastTurn.ctxPayload;
+      expect(ctx.ReplyToId).toBe('99999');
+      expect(ctx.ReplyToBody).toBeUndefined();
+    });
+
+    it('remembers a file-only inbound message with its staged file names', async () => {
+      const { runtime } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(
+        ACCOUNT_ID,
+        makeIncomingMessage({ messageId: 400, text: '', files: [{ id: '915901' }] }),
+      );
+
+      const entry = channel.recallMessage(ACCOUNT_ID, '400');
+      expect(entry?.text).toContain('doc.pdf');
     });
   });
 

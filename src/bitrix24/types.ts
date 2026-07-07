@@ -94,6 +94,8 @@ export interface IncomingMessage {
   isBot: boolean;
   chatType: ChatType;
   files: FileAttachment[];
+  /** Id of the quoted message when the user replied/quoted (params.REPLY_ID). */
+  replyToMessageId?: string;
   domain: string;
   applicationToken?: string;
   botId: number;

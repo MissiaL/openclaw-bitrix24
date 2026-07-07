@@ -127,6 +127,25 @@ function extractInboundFiles(
 }
 
 /**
+ * Extract the quoted/replied-to message id. LIVE-VERIFIED 2026-07-07: a
+ * quote arrives as `message.params.REPLY_ID: "1922495"` — the id only, no
+ * quoted content (resolve the content from the channel's recent-message
+ * cache; no REST read method is available to a regular chat bot —
+ * imbot.v2.Chat.Message.get is supervisor/personal-bot only and
+ * im.dialog.messages.get is denied for the bot's own dialog).
+ */
+function extractReplyToMessageId(
+  params: Record<string, unknown> | undefined,
+): string | undefined {
+  const raw = params?.REPLY_ID;
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const id = String(raw).trim();
+    if (id !== '') return id;
+  }
+  return undefined;
+}
+
+/**
  * Parse a raw ONIMBOTV2MESSAGEADD event body into an IncomingMessage.
  * Returns null if the message should be ignored (e.g. no bot id present, or
  * the message was authored by a bot — echo prevention).
@@ -166,6 +185,7 @@ export function parseMessageEvent(body: Bitrix24MessageEvent): IncomingMessage |
     isBot: false,
     chatType: mapChatType(chat),
     files: extractInboundFiles(message.params, message.text),
+    replyToMessageId: extractReplyToMessageId(message.params),
     domain: auth?.domain ?? '',
     applicationToken: auth?.application_token,
     botId: toNumber(bot.id),

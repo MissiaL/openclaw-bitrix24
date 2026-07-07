@@ -33,9 +33,21 @@ function isLikelyUnreachableWebhookBase(base: string): boolean {
  *   - Bidirectional text + file messaging
  *   - Typing indicators
  */
+/** Cap for the recent-message cache used to resolve quoted replies. */
+const RECENT_MESSAGE_CACHE_LIMIT = 500;
+
 export class Bitrix24Channel {
   private accountManager = new AccountManager();
   private messageCallback: ((accountId: string, msg: IncomingMessage) => void) | null = null;
+  /**
+   * Recent messages (inbound and outbound) keyed by `accountId:messageId`,
+   * used to resolve `params.REPLY_ID` quotes: Bitrix sends only the quoted
+   * message id, and no REST read method is available to a regular chat bot
+   * (imbot.v2.Chat.Message.get is supervisor/personal-bot only;
+   * im.dialog.messages.get is denied for the bot's own dialog). Insertion
+   * order doubles as LRU order.
+   */
+  private recentMessages = new Map<string, { text: string; sender?: string }>();
 
   /**
    * Initialize from OpenClaw config.
@@ -95,7 +107,7 @@ export class Bitrix24Channel {
     }
 
     const client = this.accountManager.getClient(accountId);
-    return await sendMessage(client, {
+    const result = await sendMessage(client, {
       botId: account.botId,
       botClientId: account.bot.clientId,
       dialogId,
@@ -104,6 +116,40 @@ export class Bitrix24Channel {
     }, {
       textChunkLimit: account.textChunkLimit,
     });
+    // Remember outbound messages so the user quoting the bot's own reply
+    // resolves via the recent-message cache.
+    for (const id of result.messageIds) {
+      this.rememberMessage(accountId, id, { text, sender: 'bot' });
+    }
+    return result;
+  }
+
+  /**
+   * Remember a recent message so later `REPLY_ID` quotes can resolve its
+   * content. Called for inbound messages by the dispatch wiring and for
+   * outbound messages by `sendTextMessage`.
+   */
+  rememberMessage(
+    accountId: string,
+    messageId: string,
+    entry: { text: string; sender?: string },
+  ): void {
+    const key = `${accountId}:${messageId}`;
+    this.recentMessages.delete(key);
+    this.recentMessages.set(key, entry);
+    while (this.recentMessages.size > RECENT_MESSAGE_CACHE_LIMIT) {
+      const oldest = this.recentMessages.keys().next().value;
+      if (oldest === undefined) break;
+      this.recentMessages.delete(oldest);
+    }
+  }
+
+  /** Look up a remembered message for quote resolution. */
+  recallMessage(
+    accountId: string,
+    messageId: string,
+  ): { text: string; sender?: string } | undefined {
+    return this.recentMessages.get(`${accountId}:${messageId}`);
   }
 
   /**

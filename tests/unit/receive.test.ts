@@ -239,6 +239,25 @@ describe('parseMessageEvent', () => {
     expect(msg!.files).toEqual([{ id: '915877' }]);
   });
 
+  // LIVE-VERIFIED 2026-07-07: quoting/replying to a message arrives as
+  // `message.params.REPLY_ID: "1922495"` — only the id, no quoted content.
+  it('extracts params.REPLY_ID into replyToMessageId', () => {
+    const event = makeMessageEvent({ params: { REPLY_ID: '1922495' } });
+    const msg = parseMessageEvent(event);
+    expect(msg!.replyToMessageId).toBe('1922495');
+  });
+
+  it('accepts a numeric params.REPLY_ID', () => {
+    const event = makeMessageEvent({ params: { REPLY_ID: 777 } });
+    const msg = parseMessageEvent(event);
+    expect(msg!.replyToMessageId).toBe('777');
+  });
+
+  it('leaves replyToMessageId undefined without params.REPLY_ID', () => {
+    const msg = parseMessageEvent(makeMessageEvent({}));
+    expect(msg!.replyToMessageId).toBeUndefined();
+  });
+
   it('de-duplicates FILE_ID against params.files entries', () => {
     const event = makeMessageEvent({
       params: {
