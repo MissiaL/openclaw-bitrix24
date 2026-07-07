@@ -55,7 +55,12 @@ async function stageInboundMedia(
       // One fresh directory per message: file names can't collide across
       // messages, and the sanitized basename strips any path separators.
       dir ??= await mkdtemp(join(tmpdir(), 'openclaw-bitrix24-'));
-      const safeName = basename(media.fileName || `file-${file.id}`).replace(/[^\w.-]+/g, '_');
+      // Unicode-aware sanitize: \w is ASCII-only and would flatten Cyrillic
+      // names to "_", losing the filename hint the model relies on.
+      const safeName = basename(media.fileName || `file-${file.id}`).replace(
+        /[^\p{L}\p{N}()._-]+/gu,
+        '_',
+      );
       const filePath = join(dir, `${file.id}-${safeName}`);
       await writeFile(filePath, media.buffer);
       paths.push(filePath);

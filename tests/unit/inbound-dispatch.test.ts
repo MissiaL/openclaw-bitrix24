@@ -154,6 +154,22 @@ describe('wireInboundDispatch', () => {
       expect(ctx.MediaPaths[0]).toContain('doc.pdf');
     });
 
+    it('preserves Unicode (Cyrillic) file names when staging', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+      channel.downloadAttachment.mockResolvedValueOnce({
+        buffer: Buffer.from('x'),
+        fileName: 'Проект электрики (кв. 230).pdf',
+        mimeType: 'application/pdf',
+      });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ files: [{ id: '9' }] }));
+
+      const ctx = (run as any).lastTurn.ctxPayload;
+      expect(ctx.MediaPaths[0]).toContain('Проект_электрики_(кв._230).pdf');
+    });
+
     it('a failed download degrades to a text-only turn instead of crashing', async () => {
       const { runtime, run } = makeRuntime();
       const api = makeFakeApi({ runtime });
