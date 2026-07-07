@@ -58,7 +58,11 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       // host actually defaults these when absent, or whether it needs an
       // explicit agentId.
       const sessionKey = `bitrix24:${accountId}:${msg.dialogId}`;
-      const agentId = undefined;
+      // The reply pipeline needs a concrete agent to run; without it the turn
+      // produces no model call and returns empty. Sessions are recorded under
+      // `agent:main:...`, so default to 'main' (overridable via config).
+      const agentId =
+        api.config?.channels?.bitrix24?.agentId ?? api.config?.agents?.defaultAgentId ?? 'main';
       // The host's session recorder requires a non-empty storePath; resolve it
       // from the configured session store via the runtime helper (falls back to
       // the store path string itself if the helper is absent).
@@ -67,7 +71,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           ? rc.session.resolveStorePath(api.config?.session?.store, { agentId })
           : api.config?.session?.store) || undefined;
       api.logger.info(
-        `[bitrix24] LIVE-TUNE: sessionKey=${sessionKey} storePath=${storePath ?? '(none)'} agentId=(default)`,
+        `[bitrix24] LIVE-TUNE: sessionKey=${sessionKey} storePath=${storePath ?? '(none)'} agentId=${agentId}`,
       );
 
       const senderName =
