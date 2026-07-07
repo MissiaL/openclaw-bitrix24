@@ -80,7 +80,7 @@ export async function ensureBotCommands(
       fields: {
         command: spec.command,
         title: spec.title,
-        ...(spec.hidden ? { hidden: 'Y' } : {}),
+        ...(spec.hidden ? { hidden: true } : {}),
       },
     });
     registered.push(spec.command);
