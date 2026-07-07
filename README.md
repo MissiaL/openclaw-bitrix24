@@ -4,7 +4,7 @@
 
 <!-- badges -->
 <!-- [![npm](https://img.shields.io/npm/v/@openclaw/bitrix24)](https://www.npmjs.com/package/@openclaw/bitrix24) -->
-<!-- [![CI](https://github.com/rsvbitrix/openclaw-bitrix24/actions/workflows/ci.yml/badge.svg)](https://github.com/rsvbitrix/openclaw-bitrix24/actions) -->
+<!-- [![CI](https://github.com/MissiaL/openclaw-bitrix24/actions/workflows/ci.yml/badge.svg)](https://github.com/MissiaL/openclaw-bitrix24/actions) -->
 <!-- [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) -->
 
 Channel plugin that connects your OpenClaw AI agent to Bitrix24: users chat with the agent through Bitrix24 Messenger. Pair it with any Bitrix24 REST skill if you want the agent to manage CRM, tasks, calendar, and drive on the portal.
@@ -36,7 +36,7 @@ The plugin talks to Bitrix24's current chatbot API, **imbot.v2 (Chatbots 2.0)**,
 Clone this repo and install the built plugin:
 
 ```bash
-git clone https://github.com/rsvbitrix/openclaw-bitrix24.git
+git clone https://github.com/MissiaL/openclaw-bitrix24.git
 cd openclaw-bitrix24/extensions/bitrix24
 npm install && npm run build
 openclaw plugins install .
@@ -293,7 +293,7 @@ openclaw-bitrix24/
 ### Setup
 
 ```bash
-git clone https://github.com/rsvbitrix/openclaw-bitrix24.git
+git clone https://github.com/MissiaL/openclaw-bitrix24.git
 cd openclaw-bitrix24
 npm install
 ```

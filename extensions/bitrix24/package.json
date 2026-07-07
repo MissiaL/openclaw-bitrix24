@@ -33,12 +33,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/rsvbitrix/openclaw-bitrix24.git",
+    "url": "https://github.com/MissiaL/openclaw-bitrix24.git",
     "directory": "extensions/bitrix24"
   },
-  "homepage": "https://github.com/rsvbitrix/openclaw-bitrix24#readme",
+  "homepage": "https://github.com/MissiaL/openclaw-bitrix24#readme",
   "bugs": {
-    "url": "https://github.com/rsvbitrix/openclaw-bitrix24/issues"
+    "url": "https://github.com/MissiaL/openclaw-bitrix24/issues"
   },
   "author": {
     "name": "OpenClaw Contributors",

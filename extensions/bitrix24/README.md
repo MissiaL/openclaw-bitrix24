@@ -114,7 +114,7 @@ For `imbot.v2.*` calls, the plugin also needs a stable bot token (config field `
 
 ## Documentation
 
-Full documentation, architecture, and troubleshooting: [github.com/rsvbitrix/openclaw-bitrix24](https://github.com/rsvbitrix/openclaw-bitrix24)
+Full documentation, architecture, and troubleshooting: [github.com/MissiaL/openclaw-bitrix24](https://github.com/MissiaL/openclaw-bitrix24)
 
 ## Feedback
 
