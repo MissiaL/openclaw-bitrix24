@@ -7,7 +7,7 @@
 <!-- [![CI](https://github.com/MissiaL/openclaw-bitrix24/actions/workflows/ci.yml/badge.svg)](https://github.com/MissiaL/openclaw-bitrix24/actions) -->
 <!-- [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) -->
 
-Channel plugin that connects your OpenClaw AI agent to Bitrix24: users chat with the agent through Bitrix24 Messenger. Pair it with any Bitrix24 REST skill if you want the agent to manage CRM, tasks, calendar, and drive on the portal.
+Channel plugin that connects your OpenClaw AI agent to Bitrix24: users chat with the agent through Bitrix24 Messenger. Pair it with the [**bitrix24-agent skill**](https://github.com/vrtalex/bitrix24-skill/tree/main/skills/bitrix24-agent) if you want the agent to manage CRM, tasks, calendar, and drive on the portal — see [Plugin vs. skill](#plugin-vs-skill) below.
 
 ## Features
 
@@ -23,6 +23,30 @@ All of these are verified against a live Bitrix24 portal:
 - **Message-tool targets** — the agent's `message` tool can send to `2172` (user) or `chat15762` (group chat) targets directly.
 
 The plugin talks to Bitrix24's current chatbot API, **imbot.v2 (Chatbots 2.0)**, not the deprecated v1 `imbot.*` methods. All events (new message, command, join chat, bot deleted, ...) arrive on a **single webhook endpoint** per account, `/webhook/bitrix24/<accountId>`, dispatched internally by the event's `event` field (e.g. `ONIMBOTV2MESSAGEADD`). Bitrix24 manages the underlying event subscriptions automatically whenever the bot is registered or updated -- there is no manual `event.bind`/`event.unbind` step.
+
+## Plugin vs. skill
+
+This repo is **the channel plugin** — the transport layer only. For a full "chat with the agent in Bitrix24 Messenger *and* have it act on the portal" setup you install two independent pieces:
+
+| | This plugin (channel `bitrix24`) | The [bitrix24-agent skill](https://github.com/vrtalex/bitrix24-skill/tree/main/skills/bitrix24-agent) |
+|---|---|---|
+| Layer | **Transport** — receive messages, deliver replies/files/typing/commands | **Actions** — CRM, tasks, calendar, drive, telephony via REST |
+| Acts as | the chatbot (`imbot.v2`, bot token) | an inbound webhook / OAuth app (admin `BITRIX24_WEBHOOK_URL`) |
+| Receives events | yes (webhooks) | no (outbound REST calls only) |
+
+They are independent and don't depend on each other:
+
+- **Plugin only** — the agent is reachable in Bitrix24 Messenger and chats (text/files/commands), but has no knowledge of the REST API, so it can't run CRM/task/calendar actions.
+- **Skill only** — the agent can act on the portal, but you reach it from another channel (Telegram, CLI); the skill is channel-agnostic.
+- **Both** — the agent is reachable *inside* Bitrix24 Messenger *and* acts on the portal. This is the full setup.
+
+Notes:
+
+- **Separate credentials.** The plugin authenticates as the bot; the skill uses its own admin webhook (`BITRIX24_WEBHOOK_URL` / `B24_*` env). They don't share credentials and don't interfere.
+- **Scopes are the skill's concern.** Give the admin webhook the scopes for the actions you want (`crm`, `task`, `calendar`, `telephony`, `documentgenerator`, ...). Missing scopes fail with `insufficient_scope` — that's a portal-side webhook setting, not a plugin change. The plugin itself only needs `imbot`, `im`, `disk` (see [Scopes](#scopes)).
+- **Replies go through the channel.** The skill can also post to chats via `im.message.add` (as the admin), but with this plugin installed, agent replies should flow through the channel; reserve `im.message.add` for deliberately sending as the admin to other users.
+
+Install the skill separately per its own README: <https://github.com/vrtalex/bitrix24-skill>.
 
 ## Requirements
 
