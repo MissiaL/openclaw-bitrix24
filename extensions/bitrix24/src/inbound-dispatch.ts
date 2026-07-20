@@ -1,9 +1,9 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { basename, isAbsolute, join, relative, sep } from 'node:path';
 import { bbCodeToMarkdown } from '../../../src/bitrix24/format.js';
 import type { IncomingMessage } from '../../../src/bitrix24/types.js';
 import type { Bitrix24Channel } from './channel.js';
+import { loadOutboundMedia } from './outbound-media.js';
 
 /**
  * Wire the missing inbound -> agent path: registers `channel.onMessage(...)`
@@ -43,18 +43,31 @@ async function stageInboundMedia(
   channel: Bitrix24Channel,
   accountId: string,
   msg: IncomingMessage,
+  workspaceDir?: string,
 ): Promise<{ MediaPaths: string[]; MediaTypes: string[] } | undefined> {
   if (!msg.files?.length) return undefined;
+  if (!workspaceDir) {
+    api.logger.warn(
+      `[bitrix24] cannot stage inbound files for dialog=${msg.dialogId}: agent workspace unavailable`,
+    );
+    return undefined;
+  }
 
   const paths: string[] = [];
   const types: string[] = [];
   let dir: string | undefined;
+  const inboundRoot = join(workspaceDir, '.openclaw', 'media', 'inbound');
   for (const file of msg.files) {
     try {
       const media = await channel.downloadAttachment(accountId, file.id, file.name);
       // One fresh directory per message: file names can't collide across
-      // messages, and the sanitized basename strips any path separators.
-      dir ??= await mkdtemp(join(tmpdir(), 'openclaw-bitrix24-'));
+      // messages, and the sanitized basename strips any path separators. Keep
+      // it under the routed agent workspace so the host media sandbox permits
+      // PDF/image/document tools to read the attachment.
+      if (!dir) {
+        await mkdir(inboundRoot, { recursive: true });
+        dir = await mkdtemp(join(inboundRoot, 'bitrix24-'));
+      }
       // Unicode-aware sanitize: \w is ASCII-only and would flatten Cyrillic
       // names to "_", losing the filename hint the model relies on.
       const safeName = basename(media.fileName || `file-${file.id}`).replace(
@@ -76,6 +89,31 @@ async function stageInboundMedia(
     }
   }
   return paths.length > 0 ? { MediaPaths: paths, MediaTypes: types } : undefined;
+}
+
+async function readAllowedOutboundMedia(
+  filePath: string,
+  allowedRoots: Array<string | undefined>,
+): Promise<Buffer> {
+  const fileRealPath = await realpath(filePath);
+  for (const root of allowedRoots) {
+    if (!root) continue;
+    let rootRealPath: string;
+    try {
+      rootRealPath = await realpath(root);
+    } catch {
+      continue;
+    }
+    const rootRelativePath = relative(rootRealPath, fileRealPath);
+    if (
+      rootRelativePath !== '..' &&
+      !rootRelativePath.startsWith(`..${sep}`) &&
+      !isAbsolute(rootRelativePath)
+    ) {
+      return await readFile(fileRealPath);
+    }
+  }
+  throw new Error(`outbound media is outside allowed outbound media roots: ${filePath}`);
 }
 
 export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
@@ -129,7 +167,16 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
         [msg.fromUserName, msg.fromUserLastName].filter(Boolean).join(' ').trim() || undefined;
 
       // Stage inbound file attachments as local media for the agent turn.
-      const media = await stageInboundMedia(api, channel, routeAccountId, msg);
+      const workspaceDir = api.runtime?.agent?.resolveAgentWorkspaceDir?.(api.config, agentId);
+      const stateDir = api.runtime?.state?.resolveStateDir?.(process.env);
+      const outboundMediaRoot = stateDir ? join(stateDir, 'media', 'outbound') : undefined;
+      const media = await stageInboundMedia(
+        api,
+        channel,
+        routeAccountId,
+        msg,
+        workspaceDir,
+      );
 
       // Remember this message so later REPLY_ID quotes can resolve it; a
       // file-only message is remembered by its staged file names.
@@ -214,6 +261,10 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       // Deliver the agent's reply back to the same Bitrix dialog. Send on the
       // final assembled block to avoid emitting partial streamed chunks as
       // separate messages.
+      const hasMedia = (payload: any): boolean =>
+        Boolean(payload?.mediaUrl) ||
+        (Array.isArray(payload?.mediaUrls) && payload.mediaUrls.length > 0);
+      let mediaBlockDelivered = false;
       const deliver = async (payload: any, info?: any) => {
         try {
           const kind = info?.kind;
@@ -222,8 +273,46 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           api.logger.info(
             `[bitrix24] delivery kind=${kind} payload keys=${JSON.stringify(keys)}${sample}`,
           );
+          // The host's durable path intentionally handles final payloads only.
+          // A MEDIA reply can be emitted as the sole assembled `block`, with no
+          // later `final` lifecycle event. Deliver that file here immediately;
+          // otherwise the completed turn ends silently.
+          if (kind === 'block' && hasMedia(payload)) {
+            const mediaUrls =
+              Array.isArray(payload?.mediaUrls) && payload.mediaUrls.length > 0
+                ? payload.mediaUrls
+                : [payload.mediaUrl];
+            const attachments = await Promise.all(
+              mediaUrls.map((mediaUrl: unknown) =>
+                loadOutboundMedia(String(mediaUrl), (filePath) =>
+                  readAllowedOutboundMedia(filePath, [workspaceDir, outboundMediaRoot]),
+                ),
+              ),
+            );
+            const text = payload?.text ?? payload?.body ?? '';
+            await channel.sendTextMessage(
+              routeAccountId,
+              msg.dialogId,
+              text,
+              attachments,
+            );
+            mediaBlockDelivered = true;
+            api.logger.info(
+              `[bitrix24] media reply delivered to dialog=${msg.dialogId} files=${attachments.length} (${String(text).length} chars)`,
+            );
+            return undefined;
+          }
           // Only send the final consolidated reply (skip intermediate blocks).
           if (kind && kind !== 'final') return undefined;
+          // Some providers emit a trailing final payload after the assembled
+          // media block. The user-visible result was already sent above, so a
+          // warning or duplicate final must not produce a second message.
+          if (kind === 'final' && mediaBlockDelivered) {
+            api.logger.info(
+              `[bitrix24] final reply skipped after delivered media block (dialog=${msg.dialogId})`,
+            );
+            return undefined;
+          }
           const text = payload?.text ?? payload?.body ?? '';
           if (!text) {
             api.logger.warn(`[bitrix24] final reply had no text (dialog=${msg.dialogId})`);
@@ -245,10 +334,26 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           `hasFinalize=${typeof rc.reply?.finalizeInboundContext === 'function'} ` +
           `hasBufferedDispatcher=${typeof rc.reply?.dispatchReplyWithBufferedBlockDispatcher === 'function'}`,
       );
-      await rc.inbound.run({
-        channel: 'bitrix24',
-        accountId: routeAccountId,
-        raw: msg,
+      // Start typing at ingress, not only when the model emits its first reply
+      // block. Tool-heavy turns can stay silent for many seconds before that
+      // first block, which makes a healthy bot look dead in Bitrix24.
+      const notifyTyping = async (duration: number, phase: 'keepalive' | 'stop') => {
+        try {
+          await channel.sendTypingIndicator(routeAccountId, msg.dialogId, { duration });
+        } catch (err) {
+          api.logger.warn(`[bitrix24] typing ${phase} failed: ${String(err)}`);
+        }
+      };
+      await notifyTyping(10, 'keepalive');
+      const typingTimer = setInterval(() => {
+        void notifyTyping(10, 'keepalive');
+      }, 8_000);
+      typingTimer.unref?.();
+      try {
+        await rc.inbound.run({
+          channel: 'bitrix24',
+          accountId: routeAccountId,
+          raw: msg,
         // Kernel stage tracing (ingest/record/dispatch/finalize start|done|error).
         // Without this the turn is a black box between "dispatch via inbound.run"
         // and "inbound.run returned" — exactly where the first live-debugging
@@ -281,39 +386,18 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
             dispatchReplyWithBufferedBlockDispatcher:
               rc.reply?.dispatchReplyWithBufferedBlockDispatcher,
             delivery: {
+              // Let the host's durable outbound path handle generated files. It
+              // applies the local-media sandbox and invokes this channel's
+              // registered outbound.sendMedia adapter. Text-only replies retain
+              // the legacy direct delivery below.
+              durable: (payload: any) => {
+                return hasMedia(payload) ? { to: msg.dialogId } : false;
+              },
               deliver,
               onError: (err: unknown, info: unknown) => {
                 api.logger.error(
                   `[bitrix24] delivery error info=${JSON.stringify(info)} err=${String(err)}`,
                 );
-              },
-            },
-            // typing: the kernel builds createTypingCallbacks(...) from this and
-            // runs a keepalive loop for the whole turn — without it the Bitrix
-            // "печатает…" indicator fires only right before the reply message
-            // and long turns look dead to the user.
-            replyPipeline: {
-              typing: {
-                // duration caps how long one notify stays visible (1-600s);
-                // each keepalive tick replaces the previous one.
-                start: () =>
-                  channel.sendTypingIndicator(routeAccountId, msg.dialogId, { duration: 10 }),
-                // The API has no cancel call — a 1-second notify overwrites
-                // the active indicator so it clears right after the reply
-                // instead of lingering for the rest of its duration.
-                stop: () =>
-                  channel.sendTypingIndicator(routeAccountId, msg.dialogId, { duration: 1 }),
-                onStartError: (err: unknown) => {
-                  api.logger.warn(`[bitrix24] typing indicator failed: ${String(err)}`);
-                },
-                onStopError: (err: unknown) => {
-                  api.logger.warn(`[bitrix24] typing stop failed: ${String(err)}`);
-                },
-                // Refresh comfortably inside the 10s duration above, but
-                // don't hammer the REST rate limiter.
-                keepaliveIntervalMs: 8_000,
-                // Long tool-using turns run for minutes; default TTL is 60s.
-                maxDurationMs: 300_000,
               },
             },
             replyOptions: {},
@@ -323,8 +407,14 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
               },
             },
           }),
-        },
-      });
+          },
+        });
+      } finally {
+        clearInterval(typingTimer);
+        // The API has no cancel call; a one-second indicator replaces the
+        // active keepalive and disappears immediately after the turn.
+        await notifyTyping(1, 'stop');
+      }
       api.logger.info(`[bitrix24] inbound.run returned for dialog=${msg.dialogId}`);
     } catch (err) {
       api.logger.error(`[bitrix24] inbound dispatch failed: ${String(err)}`);

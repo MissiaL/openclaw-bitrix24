@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { wireInboundDispatch } from '../../extensions/bitrix24/src/inbound-dispatch.js';
 import type { IncomingMessage } from '../../src/bitrix24/types.js';
@@ -30,6 +33,7 @@ function makeFakeChannel() {
       callback = cb;
     }),
     sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    sendTypingIndicator: vi.fn().mockResolvedValue(undefined),
     downloadAttachment: vi.fn().mockResolvedValue({
       buffer: Buffer.from('file-bytes'),
       fileName: 'doc.pdf',
@@ -52,7 +56,7 @@ function makeFakeChannel() {
  * routing.resolveAgentRoute + inbound.run(adapter). `run` invokes the adapter's
  * resolveTurn and exposes the resolved turn (incl. delivery) for assertions.
  */
-function makeRuntime() {
+function makeRuntime(workspaceDir: string = tmpdir(), stateDir: string = tmpdir()) {
   const run = vi.fn(async (params: any) => {
     const turn = params.adapter.resolveTurn();
     (run as any).lastTurn = turn;
@@ -66,6 +70,12 @@ function makeRuntime() {
   }));
   return {
     runtime: {
+      agent: {
+        resolveAgentWorkspaceDir: vi.fn(() => workspaceDir),
+      },
+      state: {
+        resolveStateDir: vi.fn(() => stateDir),
+      },
       channel: {
         routing: { resolveAgentRoute },
         inbound: { run },
@@ -142,6 +152,26 @@ describe('wireInboundDispatch', () => {
   // Without this the model never sees the attachment — observed live: user
   // sent a document, agent honestly replied it can't see any attachment.
   describe('inbound file attachments', () => {
+    it('stages attachments inside the routed agent workspace', async () => {
+      const workspaceDir = await mkdtemp(join(tmpdir(), 'b24-agent-workspace-'));
+      try {
+        const { runtime, run } = makeRuntime(workspaceDir);
+        const api = makeFakeApi({ runtime });
+
+        wireInboundDispatch(api as any, channel as any);
+        await channel.trigger(
+          ACCOUNT_ID,
+          makeIncomingMessage({ files: [{ id: '915877', name: 'doc.pdf' }] }),
+        );
+
+        const mediaPath = (run as any).lastTurn.ctxPayload.MediaPaths[0];
+        expect(mediaPath.startsWith(`${workspaceDir}${sep}`)).toBe(true);
+        expect(runtime.agent.resolveAgentWorkspaceDir).toHaveBeenCalledWith(api.config, 'main');
+      } finally {
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
+    });
+
     it('downloads files and exposes MediaPaths/MediaTypes in ctxPayload', async () => {
       const { runtime, run } = makeRuntime();
       const api = makeFakeApi({ runtime });
@@ -296,28 +326,25 @@ describe('wireInboundDispatch', () => {
     });
   });
 
-  it('wires a typing keepalive into the reply pipeline', async () => {
-    const { runtime, run } = makeRuntime();
+  it('starts typing before the agent produces its first reply and stops after the turn', async () => {
+    const { runtime } = makeRuntime();
     const api = makeFakeApi({ runtime });
     (channel as any).sendTypingIndicator = vi.fn().mockResolvedValue(undefined);
 
     wireInboundDispatch(api as any, channel as any);
     await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat42' }));
 
-    const typing = (run as any).lastTurn.replyPipeline?.typing;
-    expect(typing).toBeDefined();
-    expect(typing.keepaliveIntervalMs).toBeGreaterThan(0);
-    await typing.start();
-    expect((channel as any).sendTypingIndicator).toHaveBeenCalledWith(ACCOUNT_ID, 'chat42', {
-      duration: 10,
-    });
-    // stop() overwrites the indicator with a 1s one — the API has no cancel.
-    await typing.stop();
-    expect((channel as any).sendTypingIndicator).toHaveBeenLastCalledWith(ACCOUNT_ID, 'chat42', {
-      duration: 1,
-    });
-    // A typing failure must be swallowed by onStartError, never crash the turn.
-    expect(() => typing.onStartError(new Error('x'))).not.toThrow();
+    expect((channel as any).sendTypingIndicator).toHaveBeenNthCalledWith(
+      1,
+      ACCOUNT_ID,
+      'chat42',
+      { duration: 10 },
+    );
+    expect((channel as any).sendTypingIndicator).toHaveBeenLastCalledWith(
+      ACCOUNT_ID,
+      'chat42',
+      { duration: 1 },
+    );
   });
 
   it('delivery.deliver skips intermediate (non-final) blocks', async () => {
@@ -331,6 +358,128 @@ describe('wireInboundDispatch', () => {
     await delivery.deliver({ text: 'partial' }, { kind: 'block' });
 
     expect(channel.sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('routes reply payloads with generated files through durable outbound delivery', async () => {
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
+
+    wireInboundDispatch(api as any, channel as any);
+    await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
+
+    const delivery = (run as any).lastTurn.delivery;
+    expect(
+      delivery.durable(
+        { text: 'готово', mediaUrls: ['/agent/out/result.docx'] },
+        { kind: 'block' },
+      ),
+    ).toEqual({ to: 'chat99' });
+    expect(delivery.durable({ text: 'text only' }, { kind: 'final' })).toBe(false);
+  });
+
+  it('delivers a media block immediately when it is the only reply lifecycle event', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'b24-agent-workspace-'));
+    try {
+      const filePath = join(workspaceDir, 'result.docx');
+      await writeFile(filePath, Buffer.from('document-bytes'));
+      const { runtime, run } = makeRuntime(workspaceDir);
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
+
+      const delivery = (run as any).lastTurn.delivery;
+      const mediaBlock = {
+        text: 'готово, вот документ',
+        mediaUrl: filePath,
+        mediaUrls: [filePath],
+      };
+      const preparedBlock = delivery.preparePayload
+        ? await delivery.preparePayload(mediaBlock, { kind: 'block' })
+        : mediaBlock;
+      await delivery.deliver(preparedBlock, { kind: 'block' });
+
+      expect(channel.sendTextMessage).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'chat99',
+        'готово, вот документ',
+        [
+          expect.objectContaining({
+            buffer: Buffer.from('document-bytes'),
+            fileName: 'result.docx',
+          }),
+        ],
+      );
+
+      await delivery.deliver(
+        { text: '⚠️ Exec failed: recovered command', isError: true },
+        { kind: 'final' },
+      );
+      expect(channel.sendTextMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('delivers host-staged media from the OpenClaw outbound media store', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'b24-agent-workspace-'));
+    const stateDir = await mkdtemp(join(tmpdir(), 'b24-state-'));
+    try {
+      const outboundDir = join(stateDir, 'media', 'outbound');
+      await mkdir(outboundDir, { recursive: true });
+      const filePath = join(outboundDir, 'result---uuid.docx');
+      await writeFile(filePath, Buffer.from('staged-document'));
+      const { runtime, run } = makeRuntime(workspaceDir, stateDir);
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
+
+      const delivery = (run as any).lastTurn.delivery;
+      await delivery.deliver(
+        { text: 'готово', mediaUrl: filePath, mediaUrls: [filePath] },
+        { kind: 'block' },
+      );
+
+      expect(channel.sendTextMessage).toHaveBeenCalledWith(
+        ACCOUNT_ID,
+        'chat99',
+        'готово',
+        [expect.objectContaining({ buffer: Buffer.from('staged-document') })],
+      );
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a local media block outside the routed agent workspace', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'b24-agent-workspace-'));
+    const outsideDir = await mkdtemp(join(tmpdir(), 'b24-outside-workspace-'));
+    try {
+      const outsidePath = join(outsideDir, 'secret.docx');
+      await writeFile(outsidePath, Buffer.from('secret'));
+      const { runtime, run } = makeRuntime(workspaceDir);
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
+
+      const delivery = (run as any).lastTurn.delivery;
+      const mediaBlock = { text: 'file', mediaUrl: outsidePath };
+      const preparedBlock = delivery.preparePayload
+        ? await delivery.preparePayload(mediaBlock, { kind: 'block' })
+        : mediaBlock;
+      await delivery.deliver(preparedBlock, { kind: 'block' });
+
+      expect(channel.sendTextMessage).not.toHaveBeenCalled();
+      expect(api.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('outside allowed outbound media roots'),
+      );
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+      await rm(outsideDir, { recursive: true, force: true });
+    }
   });
 
   it('delivery.deliver falls back to payload.body when text is absent', async () => {
