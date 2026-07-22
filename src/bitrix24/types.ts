@@ -73,6 +73,8 @@ export interface AccountConfig {
   botId?: number;
   botCode?: string;
   dmPolicy: 'open' | 'paired';
+  configWrites: boolean;
+  dynamicAgentCreation?: DynamicAgentCreationConfig;
   /**
    * Bitrix user ids allowed to run control commands (/status, /new, /stop,
    * /restart, ...). '*' allows everyone. Empty/absent = commands disabled
@@ -85,6 +87,15 @@ export interface AccountConfig {
    * webhook event for this account is captured.
    */
   applicationToken?: string;
+}
+
+export interface DynamicAgentCreationConfig {
+  enabled?: boolean;
+  sourceAgentId?: string;
+  workspaceTemplate?: string;
+  agentDirTemplate?: string;
+  bootstrapFiles?: string[];
+  maxAgents?: number;
 }
 
 // ── Messages ─────────────────────────────────────────────────────────────────

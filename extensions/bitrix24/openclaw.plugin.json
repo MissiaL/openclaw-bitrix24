@@ -35,6 +35,26 @@
         "description": "Internal: last event-handler base URL registered per account. Managed by the plugin.",
         "additionalProperties": { "type": "string" }
       },
+      "configWrites": {
+        "type": "boolean",
+        "default": false,
+        "description": "Allow this channel to update OpenClaw configuration for opt-in runtime features."
+      },
+      "dynamicAgentCreation": {
+        "type": "object",
+        "description": "Create an isolated OpenClaw agent for each Bitrix24 user on their first direct message.",
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "sourceAgentId": { "type": "string", "minLength": 1 },
+          "workspaceTemplate": { "type": "string", "minLength": 1 },
+          "agentDirTemplate": { "type": "string", "minLength": 1 },
+          "bootstrapFiles": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "maxAgents": { "type": "integer", "minimum": 1 }
+        }
+      },
       "accounts": {
         "type": "array",
         "description": "Multiple Bitrix24 portals (advanced setup)",
@@ -57,6 +77,26 @@
             "enabled": { "type": "boolean", "default": true },
             "textChunkLimit": { "type": "number", "default": 18000 },
             "dmPolicy": { "type": "string", "enum": ["open", "paired"], "default": "open" },
+            "configWrites": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow this channel to update OpenClaw configuration for opt-in runtime features."
+            },
+            "dynamicAgentCreation": {
+              "type": "object",
+              "description": "Create an isolated OpenClaw agent for each Bitrix24 user on their first direct message.",
+              "properties": {
+                "enabled": { "type": "boolean", "default": false },
+                "sourceAgentId": { "type": "string", "minLength": 1 },
+                "workspaceTemplate": { "type": "string", "minLength": 1 },
+                "agentDirTemplate": { "type": "string", "minLength": 1 },
+                "bootstrapFiles": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "maxAgents": { "type": "integer", "minimum": 1 }
+              }
+            },
             "commandUsers": { "type": "array", "items": { "type": "string" }, "description": "Bitrix user ids allowed to run control commands; '*' allows everyone. Empty = commands disabled." },
             "bot": {
               "type": "object",
@@ -117,6 +157,26 @@
             "description": "Internal: last event-handler base URL registered per account. Managed by the plugin.",
             "additionalProperties": { "type": "string" }
           },
+          "configWrites": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow this channel to update OpenClaw configuration for opt-in runtime features."
+          },
+          "dynamicAgentCreation": {
+            "type": "object",
+            "description": "Create an isolated OpenClaw agent for each Bitrix24 user on their first direct message.",
+            "properties": {
+              "enabled": { "type": "boolean", "default": false },
+              "sourceAgentId": { "type": "string", "minLength": 1 },
+              "workspaceTemplate": { "type": "string", "minLength": 1 },
+              "agentDirTemplate": { "type": "string", "minLength": 1 },
+              "bootstrapFiles": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "maxAgents": { "type": "integer", "minimum": 1 }
+            }
+          },
           "accounts": {
             "type": "array",
             "description": "Multiple Bitrix24 portals (advanced setup)",
@@ -139,6 +199,26 @@
                 "enabled": { "type": "boolean", "default": true },
                 "textChunkLimit": { "type": "number", "default": 18000 },
                 "dmPolicy": { "type": "string", "enum": ["open", "paired"], "default": "open" },
+                "configWrites": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Allow this channel to update OpenClaw configuration for opt-in runtime features."
+                },
+                "dynamicAgentCreation": {
+                  "type": "object",
+                  "description": "Create an isolated OpenClaw agent for each Bitrix24 user on their first direct message.",
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": false },
+                    "sourceAgentId": { "type": "string", "minLength": 1 },
+                    "workspaceTemplate": { "type": "string", "minLength": 1 },
+                    "agentDirTemplate": { "type": "string", "minLength": 1 },
+                    "bootstrapFiles": {
+                      "type": "array",
+                      "items": { "type": "string", "minLength": 1 }
+                    },
+                    "maxAgents": { "type": "integer", "minimum": 1 }
+                  }
+                },
                 "commandUsers": { "type": "array", "items": { "type": "string" }, "description": "Bitrix user ids allowed to run control commands; '*' allows everyone. Empty = commands disabled." },
                 "bot": {
                   "type": "object",

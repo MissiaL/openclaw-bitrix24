@@ -511,3 +511,65 @@ describe('AccountManager.setTokenRefreshCallback', () => {
     manager.destroy();
   });
 });
+
+// ── dynamic agent creation ──────────────────────────────────────────────────
+
+describe('AccountManager dynamic agent creation config', () => {
+  it('inherits channel defaults and lets an account replace each setting', () => {
+    const manager = new AccountManager();
+    manager.loadFromConfig({
+      configWrites: true,
+      dynamicAgentCreation: {
+        enabled: true,
+        sourceAgentId: 'base',
+        workspaceTemplate: '/tmp/base/{agentId}',
+      },
+      accounts: [
+        {
+          id: 'inherited',
+          webhookUrl: 'https://inherited.bitrix24.ru/rest/1/key/',
+        },
+        {
+          id: 'overridden',
+          webhookUrl: 'https://overridden.bitrix24.ru/rest/1/key/',
+          configWrites: false,
+          dynamicAgentCreation: {
+            enabled: true,
+            sourceAgentId: 'legal',
+          },
+        },
+      ],
+    });
+
+    expect(manager.getAccount('inherited')?.configWrites).toBe(true);
+    expect(manager.getAccount('inherited')?.dynamicAgentCreation).toEqual({
+      enabled: true,
+      sourceAgentId: 'base',
+      workspaceTemplate: '/tmp/base/{agentId}',
+    });
+    expect(manager.getAccount('overridden')?.configWrites).toBe(false);
+    expect(manager.getAccount('overridden')?.dynamicAgentCreation).toEqual({
+      enabled: true,
+      sourceAgentId: 'legal',
+    });
+
+    manager.destroy();
+  });
+
+  it('keeps dynamic creation and config writes disabled by default', () => {
+    const manager = new AccountManager();
+    manager.loadFromConfig({
+      accounts: [
+        {
+          id: 'legacy',
+          webhookUrl: 'https://legacy.bitrix24.ru/rest/1/key/',
+        },
+      ],
+    });
+
+    expect(manager.getAccount('legacy')?.configWrites).toBe(false);
+    expect(manager.getAccount('legacy')?.dynamicAgentCreation).toBeUndefined();
+
+    manager.destroy();
+  });
+});

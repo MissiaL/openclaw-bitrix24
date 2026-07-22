@@ -24,4 +24,26 @@ describe('openclaw.plugin.json', () => {
     expect(manifest.channelConfigs.bitrix24.schema).toEqual(manifest.configSchema);
     expect(manifest.channelConfigs.bitrix24.uiHints).toEqual(manifest.uiHints);
   });
+
+  it('declares opt-in dynamic agent settings at channel and account levels', () => {
+    const properties = manifest.configSchema.properties;
+    const accountProperties = properties.accounts.items.properties;
+
+    expect(properties.configWrites).toMatchObject({ type: 'boolean', default: false });
+    expect(properties.dynamicAgentCreation.properties.enabled).toMatchObject({
+      type: 'boolean',
+      default: false,
+    });
+    expect(properties.dynamicAgentCreation.properties.maxAgents).toMatchObject({
+      type: 'integer',
+      minimum: 1,
+    });
+    expect(properties.dynamicAgentCreation.properties.bootstrapFiles).toMatchObject({
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+    });
+
+    expect(accountProperties.configWrites).toEqual(properties.configWrites);
+    expect(accountProperties.dynamicAgentCreation).toEqual(properties.dynamicAgentCreation);
+  });
 });

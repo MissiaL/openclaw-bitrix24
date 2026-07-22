@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import type { AccountConfig, BitrixAuth, BotConfig } from './types.js';
+import type {
+  AccountConfig,
+  BitrixAuth,
+  BotConfig,
+  DynamicAgentCreationConfig,
+} from './types.js';
 import { Bitrix24Client } from './client.js';
 import { resolveAuth, extractDomain } from './token.js';
 
@@ -78,6 +83,8 @@ export class AccountManager {
         botId: raw.botId,
         botCode: raw.botCode,
         dmPolicy: raw.dmPolicy ?? 'open',
+        configWrites: raw.configWrites ?? config.configWrites ?? false,
+        dynamicAgentCreation: raw.dynamicAgentCreation ?? config.dynamicAgentCreation,
         commandUsers: raw.commandUsers ?? config.commandUsers ?? [],
         applicationToken: raw.applicationToken,
       };
@@ -106,6 +113,8 @@ export class AccountManager {
             clientId: deriveBotClientId(auth),
           },
           dmPolicy: 'open',
+          configWrites: config.configWrites ?? false,
+          dynamicAgentCreation: config.dynamicAgentCreation,
           commandUsers: config.commandUsers ?? [],
         });
       }
@@ -262,10 +271,14 @@ export interface RawChannelConfig {
     botId?: number;
     botCode?: string;
     dmPolicy?: 'open' | 'paired';
+    configWrites?: boolean;
+    dynamicAgentCreation?: DynamicAgentCreationConfig;
     /** Bitrix user ids allowed to run control commands; '*' = everyone. */
     commandUsers?: string[];
     applicationToken?: string;
   }>;
   /** Channel-level default for accounts that do not set their own. */
   commandUsers?: string[];
+  configWrites?: boolean;
+  dynamicAgentCreation?: DynamicAgentCreationConfig;
 }
