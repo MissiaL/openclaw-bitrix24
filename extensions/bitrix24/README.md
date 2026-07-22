@@ -104,6 +104,45 @@ For `imbot.v2.*` calls, the plugin also needs a stable bot token (config field `
 - OAuth accounts should set `bot.clientId` explicitly
 - the same value is reused across all `imbot.v2.*` methods (`Bot.register`, `Bot.update`, `Bot.unregister`, `Chat.Message.*`, `Chat.InputAction.notify`, `File.upload`, `File.download`)
 
+## Isolated memory per Bitrix24 user
+
+By default, direct messages keep the existing routing behavior. You can opt in to automatic personal agents so every pair of Bitrix24 account and employee gets a separate OpenClaw workspace, session history, and long-term memory.
+
+```yaml
+channels:
+  bitrix24:
+    configWrites: true
+    dynamicAgentCreation:
+      enabled: true
+      sourceAgentId: b24-general
+      workspaceTemplate: ~/.openclaw/workspaces/bitrix24/{accountId}/{userId}
+      agentDirTemplate: ~/.openclaw/agents/{agentId}/agent
+      bootstrapFiles:
+        - AGENTS.md
+        - SOUL.md
+        - TOOLS.md
+        - IDENTITY.md
+      maxAgents: 500
+    accounts:
+      - id: main
+        webhookUrl: "https://portal-a.bitrix24.ru/rest/1/secret1/"
+        dmPolicy: open
+        # Optional account-level replacement of either setting:
+        dynamicAgentCreation:
+          enabled: true
+          sourceAgentId: b24-sales
+          workspaceTemplate: ~/.openclaw/workspaces/bitrix24/{accountId}/{userId}
+          agentDirTemplate: ~/.openclaw/agents/{agentId}/agent
+          bootstrapFiles: [AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md]
+          maxAgents: 250
+```
+
+Both `configWrites` and `dynamicAgentCreation.enabled` must be enabled. An account-level value replaces the corresponding channel-level value; `dynamicAgentCreation` is not partially merged.
+
+On the first direct message, the plugin creates a deterministic personal agent, copies only the allowlisted bootstrap files from `sourceAgentId`, creates a fresh `USER.md`, persists an exact user binding, and immediately re-routes that same message. Operational overrides such as model, tools, and skills are inherited from the source agent, while its workspace, `agentDir`, default flag, `USER.md`, `MEMORY.md`, `memory/`, and previous results are not inherited.
+
+Group messages stay on the existing base route and never create personal agents. If isolation is enabled but provisioning is unsafe or unavailable, the request fails closed instead of reaching shared memory. Existing personal agents and bindings remain in place when the feature is later disabled.
+
 ## Required Scopes
 
 | Scope | Required | Used for |

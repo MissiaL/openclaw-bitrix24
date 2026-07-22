@@ -320,6 +320,69 @@ describe('maybeCreateDynamicAgent provisioning', () => {
     );
   });
 
+  it('inherits functional source-agent overrides without inheriting identity or storage', async () => {
+    const cfg = makeConfig();
+    Object.assign(cfg.agents.list[0], {
+      default: true,
+      name: 'Tender Assistant',
+      model: { primary: 'openai/gpt-test' },
+      skills: ['tender-search'],
+      tools: { deny: ['browser'] },
+    });
+    await mkdir(join(tempRoot, 'base-workspace'), { recursive: true });
+    const harness = makeHarness(cfg);
+
+    const result = await maybeCreateDynamicAgent({
+      cfg,
+      runtime: harness.runtime,
+      accountId: 'tkp',
+      userId: '403',
+      resolveAgentRoute: harness.resolveAgentRoute,
+      log: vi.fn(),
+    });
+
+    expect(result.status).toBe('ready');
+    const personal = harness.current().agents.list.find(
+      (agent: any) => agent.id === resolveDynamicAgentId('tkp', '403'),
+    );
+    expect(personal).toMatchObject({
+      name: 'Tender Assistant',
+      model: { primary: 'openai/gpt-test' },
+      skills: ['tender-search'],
+      tools: { deny: ['browser'] },
+    });
+    expect(personal.default).toBeUndefined();
+    expect(personal.workspace).not.toBe(cfg.agents.list[0].workspace);
+    expect(personal.agentDir).not.toBe(cfg.agents.list[0].agentDir);
+  });
+
+  it('never deletes a pre-existing workspace when the config write fails', async () => {
+    const cfg = makeConfig();
+    const workspace = join(tempRoot, 'workspace-tkp-403');
+    await mkdir(join(tempRoot, 'base-workspace'), { recursive: true });
+    await mkdir(workspace, { recursive: true });
+    await writeFile(join(workspace, 'keep.txt'), 'keep');
+    const harness = makeHarness(cfg);
+    harness.runtime.config.mutateConfigFile = vi.fn(async (params: any) => {
+      const draft = structuredClone(cfg);
+      await params.mutate(draft);
+      throw new Error('config write failed');
+    });
+
+    await expect(
+      maybeCreateDynamicAgent({
+        cfg,
+        runtime: harness.runtime,
+        accountId: 'tkp',
+        userId: '403',
+        resolveAgentRoute: harness.resolveAgentRoute,
+        log: vi.fn(),
+      }),
+    ).rejects.toThrow('config write failed');
+
+    expect(await readFile(join(workspace, 'keep.txt'), 'utf8')).toBe('keep');
+  });
+
   it.each([
     ['config-writes-disabled', { configWrites: false }],
     ['dm-policy-not-open', { dmPolicy: 'paired' }],

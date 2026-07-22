@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFile, lstat, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -326,7 +326,6 @@ export async function maybeCreateDynamicAgent(params: {
     }
   }
 
-  let createdWorkspace: string | undefined;
   let mutationResult: MutationResult | undefined;
   try {
     const committed = await runtime.config.mutateConfigFile({
@@ -380,6 +379,7 @@ export async function maybeCreateDynamicAgent(params: {
         const dynamic = lockedSettings.dynamicAgentCreation;
         const agentExists = hasAgent(draft, dynamicAgentId);
         if (!agentExists) {
+          const lockedSourceAgent = findAgent(draft, dynamic.sourceAgentId!);
           const lockedSourceWorkspace = resolveSourceWorkspace(
             draft,
             runtime,
@@ -412,10 +412,22 @@ export async function maybeCreateDynamicAgent(params: {
             }
             throw error;
           }
-          createdWorkspace = workspace;
+          const sourceOverrides = structuredClone(lockedSourceAgent);
+          delete sourceOverrides.id;
+          delete sourceOverrides.default;
+          delete sourceOverrides.workspace;
+          delete sourceOverrides.agentDir;
           draft.agents = {
             ...draft.agents,
-            list: [...(draft.agents?.list ?? []), { id: dynamicAgentId, workspace, agentDir }],
+            list: [
+              ...(draft.agents?.list ?? []),
+              {
+                ...structuredClone(sourceOverrides),
+                id: dynamicAgentId,
+                workspace,
+                agentDir,
+              },
+            ],
           };
         }
 
@@ -439,13 +451,15 @@ export async function maybeCreateDynamicAgent(params: {
     if (error instanceof DynamicAgentMutationSkipped) {
       return error.result;
     }
-    if (createdWorkspace) {
-      await rm(createdWorkspace, { recursive: true, force: true }).catch(() => undefined);
-    }
     throw error;
   }
 
   const updatedCfg = currentConfig(cfg, runtime);
+  if (mutationResult?.created) {
+    params.log(
+      `dynamic agent created accountId=${accountId} userId=${userId} agentId=${dynamicAgentId}`,
+    );
+  }
   return {
     status: 'ready',
     updatedCfg,
