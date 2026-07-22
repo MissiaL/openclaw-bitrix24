@@ -88,6 +88,61 @@ function makeRuntime(workspaceDir: string = tmpdir(), stateDir: string = tmpdir(
   };
 }
 
+function makeDynamicRuntime(initialCfg: any) {
+  let currentCfg = structuredClone(initialCfg);
+  const base = makeRuntime();
+  const resolveAgentRoute = vi.fn(({ cfg, accountId, peer }: any) => {
+    const exact = (cfg.bindings ?? []).find(
+      (binding: any) =>
+        binding.match?.channel === 'bitrix24' &&
+        binding.match?.accountId === accountId &&
+        binding.match?.peer?.kind === peer.kind &&
+        String(binding.match.peer.id) === String(peer.id),
+    );
+    const account = (cfg.bindings ?? []).find(
+      (binding: any) =>
+        binding.match?.channel === 'bitrix24' &&
+        binding.match?.accountId === accountId &&
+        binding.match?.peer === undefined,
+    );
+    const agentId = exact?.agentId ?? account?.agentId ?? 'main';
+    return {
+      agentId,
+      sessionKey: `agent:${agentId}:bitrix24:${accountId}:${peer.kind}:${peer.id}`,
+      accountId,
+      matchedBy: exact ? 'binding.peer' : account ? 'binding.account' : 'default',
+    };
+  });
+  let mutationQueue = Promise.resolve();
+  const mutateConfigFile = vi.fn((params: any) => {
+    const operation = mutationQueue.then(async () => {
+      const draft = structuredClone(currentCfg);
+      const result = await params.mutate(draft);
+      currentCfg = draft;
+      return { nextConfig: currentCfg, result };
+    });
+    mutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  });
+  base.runtime.config = {
+    current: vi.fn(() => currentCfg),
+    mutateConfigFile,
+  };
+  base.runtime.channel.routing.resolveAgentRoute = resolveAgentRoute;
+  base.runtime.agent.resolveAgentWorkspaceDir = vi.fn((cfg: any, agentId: string) =>
+    cfg.agents?.list?.find((agent: any) => agent.id === agentId)?.workspace,
+  );
+  return {
+    ...base,
+    resolveAgentRoute,
+    mutateConfigFile,
+    current: () => currentCfg,
+  };
+}
+
 function makeFakeApi(overrides: Record<string, any> = {}) {
   return {
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -121,7 +176,7 @@ describe('wireInboundDispatch', () => {
     const routeArgs = resolveAgentRoute.mock.calls[0][0];
     expect(routeArgs.channel).toBe('bitrix24');
     expect(routeArgs.accountId).toBe(ACCOUNT_ID);
-    expect(routeArgs.peer).toEqual({ kind: 'direct', id: 'chat42' });
+    expect(routeArgs.peer).toEqual({ kind: 'direct', id: '7' });
 
     expect(run).toHaveBeenCalledOnce();
     const turn = (run as any).lastTurn;
@@ -145,6 +200,121 @@ describe('wireInboundDispatch', () => {
     await delivery.deliver({ text: 'hi' }, { kind: 'final' });
 
     expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'hi');
+  });
+
+  describe('dynamic personal agent routing', () => {
+    function dynamicConfig(root: string, configWrites = true) {
+      return {
+        channels: {
+          bitrix24: {
+            configWrites,
+            dynamicAgentCreation: {
+              enabled: true,
+              sourceAgentId: 'base-agent',
+              workspaceTemplate: join(root, 'workspace-{accountId}-{userId}'),
+              agentDirTemplate: join(root, 'agent-{agentId}'),
+              bootstrapFiles: [],
+            },
+            accounts: [{ id: ACCOUNT_ID, dmPolicy: 'open' }],
+          },
+        },
+        agents: {
+          list: [
+            {
+              id: 'base-agent',
+              workspace: join(root, 'base-workspace'),
+              agentDir: join(root, 'base-agent-dir'),
+            },
+          ],
+        },
+        bindings: [
+          {
+            agentId: 'base-agent',
+            match: { channel: 'bitrix24', accountId: ACCOUNT_ID },
+          },
+        ],
+      };
+    }
+
+    it('creates and immediately routes the first direct message to the personal agent', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'b24-dynamic-routing-'));
+      try {
+        const cfg = dynamicConfig(root);
+        await mkdir(join(root, 'base-workspace'), { recursive: true });
+        const dynamic = makeDynamicRuntime(cfg);
+        const api = makeFakeApi({ config: cfg, runtime: dynamic.runtime });
+
+        wireInboundDispatch(api as any, channel as any);
+        await channel.trigger(
+          ACCOUNT_ID,
+          makeIncomingMessage({ fromUserId: 403, dialogId: 'chat99' }),
+        );
+
+        expect(dynamic.mutateConfigFile).toHaveBeenCalledOnce();
+        const personalBinding = dynamic.current().bindings.find(
+          (binding: any) => binding.match?.peer?.id === '403',
+        );
+        expect(personalBinding).toBeDefined();
+        const turn = (dynamic.run as any).lastTurn;
+        expect(turn.agentId).toBe(personalBinding.agentId);
+        expect(turn.routeSessionKey).toContain(personalBinding.agentId);
+        expect(turn.cfg).toBe(dynamic.current());
+        expect(dynamic.runtime.agent.resolveAgentWorkspaceDir).toHaveBeenCalledWith(
+          dynamic.current(),
+          personalBinding.agentId,
+        );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it('never creates personal agents for group messages', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'b24-dynamic-group-'));
+      try {
+        const cfg = dynamicConfig(root);
+        const dynamic = makeDynamicRuntime(cfg);
+        const api = makeFakeApi({ config: cfg, runtime: dynamic.runtime });
+
+        wireInboundDispatch(api as any, channel as any);
+        await channel.trigger(
+          ACCOUNT_ID,
+          makeIncomingMessage({ chatType: 'C', dialogId: 'chat777', fromUserId: 403 }),
+        );
+
+        expect(dynamic.mutateConfigFile).not.toHaveBeenCalled();
+        expect(dynamic.resolveAgentRoute).toHaveBeenCalledWith(
+          expect.objectContaining({ peer: { kind: 'group', id: 'chat777' } }),
+        );
+        expect(dynamic.run).toHaveBeenCalledOnce();
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it('fails closed instead of using shared memory when enabled creation is denied', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'b24-dynamic-denied-'));
+      try {
+        const cfg = dynamicConfig(root, false);
+        const dynamic = makeDynamicRuntime(cfg);
+        const api = makeFakeApi({ config: cfg, runtime: dynamic.runtime });
+
+        wireInboundDispatch(api as any, channel as any);
+        await channel.trigger(
+          ACCOUNT_ID,
+          makeIncomingMessage({ fromUserId: 403, dialogId: 'chat99' }),
+        );
+
+        expect(dynamic.run).not.toHaveBeenCalled();
+        expect(channel.sendTextMessage).toHaveBeenCalledOnce();
+        expect(channel.sendTextMessage).toHaveBeenCalledWith(
+          ACCOUNT_ID,
+          'chat99',
+          'Временная ошибка персонального профиля. Попробуйте позже.',
+        );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
   });
 
   // Inbound files (live-verified FILE_ID shape) must reach the agent as

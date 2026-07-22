@@ -109,6 +109,11 @@ function makeHarness(initialCfg: any, mutationCfg?: any) {
   });
   return {
     runtime: {
+      agent: {
+        resolveAgentWorkspaceDir: vi.fn((cfg: any, agentId: string) =>
+          cfg.agents?.list?.find((agent: any) => agent.id === agentId)?.workspace,
+        ),
+      },
       config: {
         current: vi.fn(() => currentCfg),
         mutateConfigFile,
@@ -289,6 +294,30 @@ describe('maybeCreateDynamicAgent provisioning', () => {
     expect(await readFile(join(workspace, 'USER.md'), 'utf8')).toContain('Ivan Petrov');
     expect(await readFile(join(workspace, 'USER.md'), 'utf8')).toContain('403');
     expect(await readFile(join(workspace, 'USER.md'), 'utf8')).toContain('tkp');
+  });
+
+  it('resolves a source workspace through the injected runtime when the agent omits it', async () => {
+    const cfg = makeConfig();
+    delete cfg.agents.list[0].workspace;
+    const sourceWorkspace = join(tempRoot, 'resolved-base-workspace');
+    await mkdir(sourceWorkspace, { recursive: true });
+    const harness = makeHarness(cfg);
+    harness.runtime.agent.resolveAgentWorkspaceDir.mockReturnValue(sourceWorkspace);
+
+    const result = await maybeCreateDynamicAgent({
+      cfg,
+      runtime: harness.runtime,
+      accountId: 'tkp',
+      userId: '403',
+      resolveAgentRoute: harness.resolveAgentRoute,
+      log: vi.fn(),
+    });
+
+    expect(result.status).toBe('ready');
+    expect(harness.runtime.agent.resolveAgentWorkspaceDir).toHaveBeenCalledWith(
+      expect.any(Object),
+      'base-agent',
+    );
   });
 
   it.each([

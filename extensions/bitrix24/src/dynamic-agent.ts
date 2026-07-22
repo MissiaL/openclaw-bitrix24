@@ -95,6 +95,12 @@ function findAgent(cfg: any, agentId: string): any | undefined {
   return (cfg?.agents?.list ?? []).find((agent: any) => agent?.id === agentId);
 }
 
+function resolveSourceWorkspace(cfg: any, runtime: any, agentId: string): string | undefined {
+  return (
+    runtime?.agent?.resolveAgentWorkspaceDir?.(cfg, agentId) ?? findAgent(cfg, agentId)?.workspace
+  );
+}
+
 function findExactBinding(cfg: any, accountId: string, userId: string): any | undefined {
   return (cfg?.bindings ?? []).find(
     (binding: any) =>
@@ -302,12 +308,16 @@ export async function maybeCreateDynamicAgent(params: {
     return denied(cfg, 'config-writer-unavailable');
   }
 
-  const sourceAgent = findAgent(cfg, settings.dynamicAgentCreation.sourceAgentId!);
+  const sourceWorkspace = resolveSourceWorkspace(
+    cfg,
+    runtime,
+    settings.dynamicAgentCreation.sourceAgentId!,
+  );
   const bootstrapFiles = settings.dynamicAgentCreation.bootstrapFiles ?? [];
   if (bootstrapFiles.length > 0) {
-    if (!sourceAgent?.workspace) return denied(cfg, 'source-workspace-missing');
+    if (!sourceWorkspace) return denied(cfg, 'source-workspace-missing');
     try {
-      await resolveBootstrapSources(sourceAgent.workspace, bootstrapFiles);
+      await resolveBootstrapSources(sourceWorkspace, bootstrapFiles);
     } catch (error) {
       if (error instanceof DynamicAgentProvisioningError) {
         return denied(cfg, error.reason);
@@ -370,7 +380,11 @@ export async function maybeCreateDynamicAgent(params: {
         const dynamic = lockedSettings.dynamicAgentCreation;
         const agentExists = hasAgent(draft, dynamicAgentId);
         if (!agentExists) {
-          const lockedSourceAgent = findAgent(draft, dynamic.sourceAgentId!);
+          const lockedSourceWorkspace = resolveSourceWorkspace(
+            draft,
+            runtime,
+            dynamic.sourceAgentId!,
+          );
           const workspace = expandTemplate(
             dynamic.workspaceTemplate ?? '~/.openclaw/workspace-{agentId}',
             { accountId, userId, agentId: dynamicAgentId },
@@ -379,14 +393,14 @@ export async function maybeCreateDynamicAgent(params: {
             dynamic.agentDirTemplate ?? '~/.openclaw/agents/{agentId}/agent',
             { accountId, userId, agentId: dynamicAgentId },
           );
-          if (!lockedSourceAgent?.workspace) {
+          if (!lockedSourceWorkspace) {
             throw new DynamicAgentMutationSkipped(denied(draft, 'source-workspace-missing'));
           }
           try {
             await bootstrapWorkspace({
               workspace,
               agentDir,
-              sourceWorkspace: lockedSourceAgent.workspace,
+              sourceWorkspace: lockedSourceWorkspace,
               bootstrapFiles: dynamic.bootstrapFiles ?? [],
               accountId,
               userId,

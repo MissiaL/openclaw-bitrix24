@@ -3,6 +3,7 @@ import { basename, isAbsolute, join, relative, sep } from 'node:path';
 import { bbCodeToMarkdown } from '../../../src/bitrix24/format.js';
 import type { IncomingMessage } from '../../../src/bitrix24/types.js';
 import type { Bitrix24Channel } from './channel.js';
+import { maybeCreateDynamicAgent } from './dynamic-agent.js';
 import { loadOutboundMedia } from './outbound-media.js';
 
 /**
@@ -136,14 +137,59 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       }
 
       const isGroup = msg.chatType === 'C';
+      const peer = {
+        kind: isGroup ? 'group' : 'direct',
+        id: isGroup ? String(msg.dialogId) : String(msg.fromUserId),
+      } as const;
+
+      let activeConfig = api.config;
+      if (!isGroup) {
+        try {
+          const dynamicResult = await maybeCreateDynamicAgent({
+            cfg: activeConfig,
+            runtime: api.runtime,
+            accountId,
+            userId: String(msg.fromUserId),
+            senderName:
+              [msg.fromUserName, msg.fromUserLastName].filter(Boolean).join(' ').trim() ||
+              undefined,
+            resolveAgentRoute: rc.routing.resolveAgentRoute,
+            log: (message) => api.logger.info(`[bitrix24] ${message}`),
+          });
+          activeConfig = dynamicResult.updatedCfg;
+          if (dynamicResult.status === 'denied') {
+            api.logger.error(
+              `[bitrix24] personal agent unavailable accountId=${accountId} ` +
+                `userId=${msg.fromUserId} reason=${dynamicResult.reason}`,
+            );
+            await channel.sendTextMessage(
+              accountId,
+              msg.dialogId,
+              'Временная ошибка персонального профиля. Попробуйте позже.',
+            );
+            return;
+          }
+        } catch (error) {
+          api.logger.error(
+            `[bitrix24] personal agent provisioning failed accountId=${accountId} ` +
+              `userId=${msg.fromUserId} error=${String(error)}`,
+          );
+          await channel.sendTextMessage(
+            accountId,
+            msg.dialogId,
+            'Временная ошибка персонального профиля. Попробуйте позже.',
+          );
+          return;
+        }
+      }
 
       // 1) Resolve the agent route (concrete agentId + sessionKey). This is what
       // makes the reply pipeline actually run the agent.
       const route = rc.routing.resolveAgentRoute({
-        cfg: api.config,
+        cfg: activeConfig,
         channel: 'bitrix24',
         accountId,
-        peer: { kind: isGroup ? 'group' : 'direct', id: String(msg.dialogId) },
+        peer,
       });
       const agentId = route?.agentId;
       const sessionKey = route?.sessionKey;
@@ -152,8 +198,8 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       // 2) Session store path (host session recorder requires a non-empty one).
       const storePath =
         (typeof rc.session?.resolveStorePath === 'function'
-          ? rc.session.resolveStorePath(api.config?.session?.store, { agentId })
-          : api.config?.session?.store) || undefined;
+          ? rc.session.resolveStorePath(activeConfig?.session?.store, { agentId })
+          : activeConfig?.session?.store) || undefined;
 
       api.logger.info(
         `[bitrix24] route resolved agentId=${agentId} sessionKey=${sessionKey} ` +
@@ -167,7 +213,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
         [msg.fromUserName, msg.fromUserLastName].filter(Boolean).join(' ').trim() || undefined;
 
       // Stage inbound file attachments as local media for the agent turn.
-      const workspaceDir = api.runtime?.agent?.resolveAgentWorkspaceDir?.(api.config, agentId);
+      const workspaceDir = api.runtime?.agent?.resolveAgentWorkspaceDir?.(activeConfig, agentId);
       const stateDir = api.runtime?.state?.resolveStateDir?.(process.env);
       const outboundMediaRoot = stateDir ? join(stateDir, 'media', 'outbound') : undefined;
       const media = await stageInboundMedia(
@@ -375,7 +421,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
             raw: msg,
           }),
           resolveTurn: () => ({
-            cfg: api.config,
+            cfg: activeConfig,
             channel: 'bitrix24',
             accountId: routeAccountId,
             agentId,
