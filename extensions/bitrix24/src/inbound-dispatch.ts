@@ -31,6 +31,7 @@ import { loadOutboundMedia } from './outbound-media.js';
 // Verbose diagnostics include user message content / reply bodies (PII from a
 // live portal). OFF by default; enabled only when BITRIX24_DEBUG is set.
 const debugPayloads = (): boolean => Boolean(process.env.BITRIX24_DEBUG);
+const SAFE_ERROR_REPLY = 'Не удалось завершить действие. Попробуйте повторить запрос.';
 
 /**
  * Download inbound Drive attachments and stage them as local temp files in
@@ -310,6 +311,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       const hasMedia = (payload: any): boolean =>
         Boolean(payload?.mediaUrl) ||
         (Array.isArray(payload?.mediaUrls) && payload.mediaUrls.length > 0);
+      let visibleReplyDelivered = false;
       let mediaBlockDelivered = false;
       const deliver = async (payload: any, info?: any) => {
         try {
@@ -342,6 +344,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
               text,
               attachments,
             );
+            visibleReplyDelivered = true;
             mediaBlockDelivered = true;
             api.logger.info(
               `[bitrix24] media reply delivered to dialog=${msg.dialogId} files=${attachments.length} (${String(text).length} chars)`,
@@ -353,18 +356,25 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           // Some providers emit a trailing final payload after the assembled
           // media block. The user-visible result was already sent above, so a
           // warning or duplicate final must not produce a second message.
-          if (kind === 'final' && mediaBlockDelivered) {
+          if (
+            kind === 'final' &&
+            (mediaBlockDelivered || (visibleReplyDelivered && payload?.isError === true))
+          ) {
             api.logger.info(
-              `[bitrix24] final reply skipped after delivered media block (dialog=${msg.dialogId})`,
+              `[bitrix24] trailing final skipped after visible reply (dialog=${msg.dialogId})`,
             );
             return undefined;
           }
-          const text = payload?.text ?? payload?.body ?? '';
+          const text =
+            payload?.isError === true
+              ? SAFE_ERROR_REPLY
+              : (payload?.text ?? payload?.body ?? '');
           if (!text) {
             api.logger.warn(`[bitrix24] final reply had no text (dialog=${msg.dialogId})`);
             return undefined;
           }
           await channel.sendTextMessage(routeAccountId, msg.dialogId, text);
+          visibleReplyDelivered = true;
           api.logger.info(
             `[bitrix24] reply delivered to dialog=${msg.dialogId} (${String(text).length} chars)`,
           );

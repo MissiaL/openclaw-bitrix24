@@ -202,6 +202,55 @@ describe('wireInboundDispatch', () => {
     expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, 'chat99', 'hi');
   });
 
+  it('does not expose a trailing technical error after a visible final reply', async () => {
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
+
+    wireInboundDispatch(api as any, channel as any);
+    await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
+
+    const delivery = (run as any).lastTurn.delivery;
+    await delivery.deliver({ text: 'Документ готов.' }, { kind: 'final' });
+    await delivery.deliver(
+      {
+        text: '⚠️ 🛠️ Exec failed: python3 -c ... SyntaxError',
+        isError: true,
+      },
+      { kind: 'final' },
+    );
+
+    expect(channel.sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(channel.sendTextMessage).toHaveBeenCalledWith(
+      ACCOUNT_ID,
+      'chat99',
+      'Документ готов.',
+    );
+  });
+
+  it('replaces an error-only final with a safe user-facing message', async () => {
+    const { runtime, run } = makeRuntime();
+    const api = makeFakeApi({ runtime });
+
+    wireInboundDispatch(api as any, channel as any);
+    await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
+
+    const delivery = (run as any).lastTurn.delivery;
+    await delivery.deliver(
+      {
+        text: '⚠️ 🛠️ Exec failed: python3 -c secret-command SyntaxError',
+        isError: true,
+      },
+      { kind: 'final' },
+    );
+
+    expect(channel.sendTextMessage).toHaveBeenCalledOnce();
+    expect(channel.sendTextMessage).toHaveBeenCalledWith(
+      ACCOUNT_ID,
+      'chat99',
+      'Не удалось завершить действие. Попробуйте повторить запрос.',
+    );
+  });
+
   describe('dynamic personal agent routing', () => {
     function dynamicConfig(root: string, configWrites = true) {
       return {
@@ -585,6 +634,30 @@ describe('wireInboundDispatch', () => {
         { text: '⚠️ Exec failed: recovered command', isError: true },
         { kind: 'final' },
       );
+      expect(channel.sendTextMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not duplicate a media block with a trailing final payload', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'b24-agent-workspace-'));
+    try {
+      const filePath = join(workspaceDir, 'result.docx');
+      await writeFile(filePath, Buffer.from('document-bytes'));
+      const { runtime, run } = makeRuntime(workspaceDir);
+      const api = makeFakeApi({ runtime });
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ dialogId: 'chat99' }));
+
+      const delivery = (run as any).lastTurn.delivery;
+      await delivery.deliver(
+        { text: 'готово', mediaUrl: filePath, mediaUrls: [filePath] },
+        { kind: 'block' },
+      );
+      await delivery.deliver({ text: 'готово' }, { kind: 'final' });
+
       expect(channel.sendTextMessage).toHaveBeenCalledTimes(1);
     } finally {
       await rm(workspaceDir, { recursive: true, force: true });
