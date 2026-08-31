@@ -55,6 +55,89 @@ describe('plugin register(api)', () => {
     expect(service.router).toBeDefined();
   });
 
+  it('uses the modern channel gateway lifecycle without double-starting from the service', async () => {
+    const api = makeFakeApi();
+    const startup = vi
+      .spyOn(Bitrix24Channel.prototype, 'startupAccount')
+      .mockResolvedValue(undefined);
+
+    try {
+      register(api);
+      const plugin = api.registerChannel.mock.calls[0][0].plugin;
+      expect(plugin.gateway?.startAccount).toBeTypeOf('function');
+
+      const service = api.registerService.mock.calls[0][0];
+      await service.start();
+      expect(startup).not.toHaveBeenCalled();
+
+      const controller = new AbortController();
+      const setStatus = vi.fn();
+      const lifecycle = plugin.gateway.startAccount({
+        accountId: 'default',
+        abortSignal: controller.signal,
+        setStatus,
+        log: { info: vi.fn() },
+      });
+      await vi.waitFor(() => expect(startup).toHaveBeenCalledWith('default'));
+      expect(setStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountId: 'default',
+          lifecycle: 'ready',
+          running: true,
+          connected: true,
+          lastError: null,
+        }),
+      );
+
+      let settled = false;
+      void lifecycle.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      controller.abort();
+      await lifecycle;
+      expect(settled).toBe(true);
+    } finally {
+      startup.mockRestore();
+    }
+  });
+
+  it('keeps service-owned account startup on legacy hosts', async () => {
+    const api = makeFakeApi({
+      registerHttpRoute: undefined,
+      config: {
+        channels: {
+          bitrix24: {
+            accounts: [
+              {
+                id: 'default',
+                enabled: true,
+                webhookUrl: 'https://example.bitrix24.ru/rest/1/testsecret/',
+              },
+            ],
+          },
+        },
+      },
+    });
+    const startup = vi
+      .spyOn(Bitrix24Channel.prototype, 'startupAccount')
+      .mockResolvedValue(undefined);
+
+    try {
+      register(api);
+      const plugin = api.registerChannel.mock.calls[0][0].plugin;
+      expect(plugin.gateway).toBeUndefined();
+
+      const service = api.registerService.mock.calls[0][0];
+      await service.start();
+      expect(startup).toHaveBeenCalledWith('default');
+    } finally {
+      startup.mockRestore();
+    }
+  });
+
   it('declares complete channel meta (docsPath, blurb, labels)', () => {
     const api = makeFakeApi();
     register(api);

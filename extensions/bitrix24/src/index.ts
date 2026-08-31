@@ -27,6 +27,11 @@ import {
  */
 export default function register(api: any): void {
   const channel = new Bitrix24Channel();
+  // OpenClaw 2026.8+ owns channel account lifecycle through
+  // `plugin.gateway.startAccount`. Older hosts only know registerService, so
+  // keep that service as a fallback without starting every account twice on
+  // modern gateways.
+  const usesGatewayAccountLifecycle = typeof api.registerHttpRoute === 'function';
 
   // Bind so `this` (the host's config service) is preserved when called later.
   // May be absent on older hosts that predate durable config writes.
@@ -174,6 +179,40 @@ export default function register(api: any): void {
           };
         },
       },
+      ...(usesGatewayAccountLifecycle
+        ? {
+            gateway: {
+              startAccount: async (ctx: {
+                accountId: string;
+                abortSignal: AbortSignal;
+                setStatus?: (status: Record<string, unknown>) => void;
+                log?: { info?: (message: string) => void };
+              }) => {
+                ctx.log?.info?.(`starting bitrix24[${ctx.accountId}] (mode: webhook)`);
+                await channel.startupAccount(ctx.accountId);
+                ctx.setStatus?.({
+                  accountId: ctx.accountId,
+                  lifecycle: 'ready',
+                  running: true,
+                  connected: true,
+                  lastConnectedAt: Date.now(),
+                  lastError: null,
+                });
+
+                // A webhook channel has no polling loop of its own. Keep the
+                // lifecycle promise pending until the Gateway stops this
+                // account so runtime health remains `running`.
+                await new Promise<void>((resolve) => {
+                  if (ctx.abortSignal.aborted) {
+                    resolve();
+                    return;
+                  }
+                  ctx.abortSignal.addEventListener('abort', () => resolve(), { once: true });
+                });
+              },
+            },
+          }
+        : {}),
     },
   });
 
@@ -224,6 +263,10 @@ export default function register(api: any): void {
     // Legacy hosts (< 2026.4) mounted this router themselves; modern hosts ignore the field.
     router: webhookApp,
     start: async () => {
+      if (usesGatewayAccountLifecycle) {
+        api.logger.info('Bitrix24 webhook service started');
+        return;
+      }
       const accounts = channel.listEnabledAccounts();
 
       if (accounts.length === 0) {
