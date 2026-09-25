@@ -98,6 +98,7 @@
               }
             },
             "commandUsers": { "type": "array", "items": { "type": "string" }, "description": "Bitrix user ids allowed to run control commands; '*' allows everyone. Empty = commands disabled." },
+            "allowUsers": { "type": "array", "items": { "type": "string" }, "description": "Bitrix user ids allowed to talk to the bot; '*' allows everyone. Absent = everyone." },
             "bot": {
               "type": "object",
               "properties": {
@@ -220,6 +221,7 @@
                   }
                 },
                 "commandUsers": { "type": "array", "items": { "type": "string" }, "description": "Bitrix user ids allowed to run control commands; '*' allows everyone. Empty = commands disabled." },
+                "allowUsers": { "type": "array", "items": { "type": "string" }, "description": "Bitrix user ids allowed to talk to the bot; '*' allows everyone. Absent = everyone." },
                 "bot": {
                   "type": "object",
                   "properties": {

@@ -86,6 +86,7 @@ export class AccountManager {
         configWrites: raw.configWrites ?? config.configWrites ?? false,
         dynamicAgentCreation: raw.dynamicAgentCreation ?? config.dynamicAgentCreation,
         commandUsers: raw.commandUsers ?? config.commandUsers ?? [],
+        allowUsers: raw.allowUsers ?? config.allowUsers,
         applicationToken: raw.applicationToken,
       };
 
@@ -116,6 +117,7 @@ export class AccountManager {
           configWrites: config.configWrites ?? false,
           dynamicAgentCreation: config.dynamicAgentCreation,
           commandUsers: config.commandUsers ?? [],
+          allowUsers: config.allowUsers,
         });
       }
     }
@@ -275,10 +277,13 @@ export interface RawChannelConfig {
     dynamicAgentCreation?: DynamicAgentCreationConfig;
     /** Bitrix user ids allowed to run control commands; '*' = everyone. */
     commandUsers?: string[];
+    /** Bitrix user ids allowed to talk to the bot; '*' = everyone; absent = everyone. */
+    allowUsers?: string[];
     applicationToken?: string;
   }>;
   /** Channel-level default for accounts that do not set their own. */
   commandUsers?: string[];
+  allowUsers?: string[];
   configWrites?: boolean;
   dynamicAgentCreation?: DynamicAgentCreationConfig;
 }

@@ -129,6 +129,15 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           `from=${msg.fromUserId} chatType=${msg.chatType} len=${msg.text?.length ?? 0}${textDiag}`,
       );
 
+      if (
+        typeof channel.isUserAllowed === 'function' &&
+        !channel.isUserAllowed(accountId, String(msg.fromUserId))
+      ) {
+        api.logger.warn(`[bitrix24] user ${msg.fromUserId} not in allowUsers for acct=${accountId} — refused`);
+        await channel.sendTextMessage(accountId, String(msg.dialogId), 'У вас нет доступа к этому боту. Обратитесь к администратору.');
+        return;
+      }
+
       const rc = api.runtime?.channel;
       if (!rc?.inbound?.run || typeof rc.routing?.resolveAgentRoute !== 'function') {
         api.logger.warn(

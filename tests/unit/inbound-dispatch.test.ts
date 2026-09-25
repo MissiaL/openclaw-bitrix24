@@ -509,6 +509,32 @@ describe('wireInboundDispatch', () => {
     });
   });
 
+  // allowUsers: users outside the list are refused before reaching the agent.
+  describe('access control (allowUsers)', () => {
+    it('refuses a user outside the list and does not run the agent', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+      (channel as any).isUserAllowed = vi.fn(() => false);
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ fromUserId: 7, dialogId: '7' }));
+
+      expect((run as any).lastTurn).toBeUndefined();
+      expect(channel.sendTextMessage).toHaveBeenCalledWith(ACCOUNT_ID, '7', expect.stringContaining('нет доступа'));
+    });
+
+    it('lets an allowed user through to the agent', async () => {
+      const { runtime, run } = makeRuntime();
+      const api = makeFakeApi({ runtime });
+      (channel as any).isUserAllowed = vi.fn(() => true);
+
+      wireInboundDispatch(api as any, channel as any);
+      await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ fromUserId: 7 }));
+
+      expect((run as any).lastTurn).toBeDefined();
+    });
+  });
+
   // Control commands: only configured commandUsers get CommandAuthorized.
   describe('command authorization (commandUsers)', () => {
     it('marks a configured user as CommandAuthorized', async () => {

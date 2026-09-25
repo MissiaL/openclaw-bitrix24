@@ -337,6 +337,12 @@ export class Bitrix24Channel {
     return this.accountManager.getAccount(accountId)?.commandUsers ?? [];
   }
 
+  /** Whether a Bitrix user may talk to the bot on this account (`allowUsers`). */
+  isUserAllowed(accountId: string, userId: string): boolean {
+    const allow = this.accountManager.getAccount(accountId)?.allowUsers;
+    return !allow || allow.includes('*') || allow.includes(String(userId));
+  }
+
   /**
    * Idempotently register the bot's slash-command menu (best-effort: a
    * failure must never break account startup — the commands still work as

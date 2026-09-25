@@ -192,6 +192,7 @@ channels:
 | `accounts[].textChunkLimit` | number | `18000` | Max characters per message |
 | `accounts[].dmPolicy` | string | `"open"` | `"open"` or `"paired"` |
 | `accounts[].commandUsers` | string[] | `[]` | Bitrix user ids allowed to run control commands (`/status`, `/new`, `/stop`, `/restart`); `"*"` allows everyone; empty disables commands. Channel-level `commandUsers` acts as the default. |
+| `accounts[].allowUsers` | string[] | — (everyone) | Bitrix user ids allowed to talk to the bot at all; `"*"` allows everyone. Other users get a refusal and their message never reaches the agent. Set it when the agent has privileged tools (e.g. a full-rights portal webhook). Channel-level `allowUsers` acts as the default. |
 | `accounts[].bot.name` | string | `"OpenClaw Agent"` | Bot display name |
 | `accounts[].bot.lastName` | string | -- | Bot last name |
 | `accounts[].bot.color` | string | `"PURPLE"` | Bot color in chat list |

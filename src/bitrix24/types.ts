@@ -82,6 +82,12 @@ export interface AccountConfig {
    */
   commandUsers: string[];
   /**
+   * Bitrix user ids allowed to talk to the bot at all ('*' = everyone).
+   * Undefined = everyone (backward compatible). Others get a refusal and the
+   * message never reaches the agent.
+   */
+  allowUsers?: string[];
+  /**
    * TOFU-pinned webhook authenticity token (top-level `auth.application_token`,
    * see `verifyApplicationToken` in receive.ts). Undefined until the first
    * webhook event for this account is captured.
