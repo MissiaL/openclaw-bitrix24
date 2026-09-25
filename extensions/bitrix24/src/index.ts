@@ -25,7 +25,22 @@ import {
  *   - /b24status command (connection diagnostics)
  *   - /b24setup command (interactive setup guide)
  */
+// Run webhook follow-up work outside the HTTP request scope via the host SDK
+// (`runDetachedWebhookWork`); older hosts without it run the work inline.
+let runDetached: (run: () => Promise<void>) => Promise<unknown> = (run) => run();
+const WEBHOOK_GUARDS_SDK = 'openclaw/plugin-sdk/webhook-request-guards';
+
 export default function register(api: any): void {
+  import(WEBHOOK_GUARDS_SDK)
+    .then((sdk: any) => {
+      if (typeof sdk?.runDetachedWebhookWork === 'function') {
+        runDetached = sdk.runDetachedWebhookWork;
+        api.logger.info('[bitrix24] webhook turns run detached (runDetachedWebhookWork)');
+      }
+    })
+    .catch((err: unknown) => {
+      api.logger.warn(`[bitrix24] ${WEBHOOK_GUARDS_SDK} unavailable, webhook turns run inline: ${String(err)}`);
+    });
   const channel = new Bitrix24Channel();
   // OpenClaw 2026.8+ owns channel account lifecycle through
   // `plugin.gateway.startAccount`. Older hosts only know registerService, so
@@ -219,7 +234,10 @@ export default function register(api: any): void {
   // Register webhook service for incoming Bitrix24 events
   const webhookApp = createWebhookApp({
     onMessage: (accountId, msg) => {
-      channel.handleIncomingMessage(accountId, msg);
+      // The agent turn outlives the webhook response. OpenClaw >= 2026.9 releases
+      // the HTTP request's root-work scope when the handler returns, and any
+      // turn started inside a released scope is rejected (GatewayDrainingError).
+      void runDetached(() => channel.handleIncomingMessage(accountId, msg));
     },
     onWelcome: (accountId, event) => {
       if (event) {

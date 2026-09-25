@@ -39,7 +39,7 @@ const RECENT_MESSAGE_CACHE_LIMIT = 500;
 
 export class Bitrix24Channel {
   private accountManager = new AccountManager();
-  private messageCallback: ((accountId: string, msg: IncomingMessage) => void) | null = null;
+  private messageCallback: ((accountId: string, msg: IncomingMessage) => void | Promise<void>) | null = null;
   /**
    * Recent messages (inbound and outbound) keyed by `accountId:messageId`,
    * used to resolve `params.REPLY_ID` quotes: Bitrix sends only the quoted
@@ -179,15 +179,16 @@ export class Bitrix24Channel {
   /**
    * Register callback for incoming messages.
    */
-  onMessage(callback: (accountId: string, msg: IncomingMessage) => void): void {
+  onMessage(callback: (accountId: string, msg: IncomingMessage) => void | Promise<void>): void {
     this.messageCallback = callback;
   }
 
   /**
-   * Called by webhook server when a message arrives.
+   * Called by webhook server when a message arrives. Resolves when the whole
+   * agent turn is done, so the caller can track it as gateway work.
    */
-  handleIncomingMessage(accountId: string, msg: IncomingMessage): void {
-    this.messageCallback?.(accountId, msg);
+  async handleIncomingMessage(accountId: string, msg: IncomingMessage): Promise<void> {
+    await this.messageCallback?.(accountId, msg);
   }
 
   /**

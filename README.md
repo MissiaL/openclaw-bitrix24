@@ -51,6 +51,7 @@ Install the skill separately per its own README: <https://github.com/vrtalex/bit
 ## Requirements
 
 - **openclaw >= 2026.4** to use the modern webhook route (`api.registerHttpRoute`, mounted under `/webhook/bitrix24/` with plugin auth -- Bitrix24 cannot send a gateway token, so this route opts out of gateway *transport* auth; see [Security](#security) for the application-level protection the plugin adds on top).
+- Tested with **openclaw 2026.9.6**. Since 2026.9 the gateway rejects agent turns started after a webhook response (`GatewayDrainingError`); the plugin runs them through `runDetachedWebhookWork` from `openclaw/plugin-sdk/webhook-request-guards` and runs them inline on hosts without it.
 - On older hosts, the plugin falls back to the legacy `registerService.router` mount, which is equally unauthenticated at the gateway level -- `auth: 'plugin'` is an opt-out of gateway auth, not an added protection by itself, so neither path is more secure than the other at the transport layer.
 
 ## Quick Start

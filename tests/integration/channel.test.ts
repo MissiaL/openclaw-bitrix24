@@ -690,6 +690,21 @@ describe('Bitrix24Channel integration', () => {
       expect(callback).toHaveBeenCalledWith(TEST_ACCOUNT_ID, incomingMsg);
     });
 
+    // The webhook wraps this in runDetachedWebhookWork; if it resolved before
+    // the agent turn finished, the host would release the work scope early and
+    // reject the turn with GatewayDrainingError.
+    it('resolves only after the async callback (agent turn) finishes', async () => {
+      let finished = false;
+      channel.onMessage(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        finished = true;
+      });
+
+      await channel.handleIncomingMessage(TEST_ACCOUNT_ID, { messageId: 1, dialogId: '1' } as IncomingMessage);
+
+      expect(finished).toBe(true);
+    });
+
     it('should not throw if no callback is registered', () => {
       const incomingMsg: IncomingMessage = {
         messageId: 556,
