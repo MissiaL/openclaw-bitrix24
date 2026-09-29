@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { resolveAuth, isValidWebhookUrl, domainFromWebhookUrl } from '../../src/bitrix24/token.js';
+import { resolveAuth } from '../../src/bitrix24/token.js';
 
 describe('resolveAuth', () => {
   beforeEach(() => {
@@ -8,7 +8,6 @@ describe('resolveAuth', () => {
 
   it('resolves from per-account webhook URL', () => {
     const auth = resolveAuth({
-      accountId: 'portal1',
       accountWebhookUrl: 'https://test.bitrix24.ru/rest/1/abc/',
       isDefault: false,
     });
@@ -20,7 +19,6 @@ describe('resolveAuth', () => {
 
   it('resolves from per-account OAuth token', () => {
     const auth = resolveAuth({
-      accountId: 'portal1',
       accountAccessToken: 'token123',
       accountRefreshToken: 'refresh456',
       isDefault: false,
@@ -34,7 +32,6 @@ describe('resolveAuth', () => {
 
   it('threads clientId, clientSecret, expiresAt into OAuthAuth', () => {
     const auth = resolveAuth({
-      accountId: 'portal1',
       accountAccessToken: 'tok',
       accountRefreshToken: 'ref',
       accountClientId: 'cid',
@@ -54,7 +51,6 @@ describe('resolveAuth', () => {
 
   it('omits undefined OAuth fields when not provided', () => {
     const auth = resolveAuth({
-      accountId: 'portal1',
       accountAccessToken: 'tok',
       isDefault: false,
     });
@@ -70,7 +66,6 @@ describe('resolveAuth', () => {
 
   it('resolves from global config for default account', () => {
     const auth = resolveAuth({
-      accountId: 'default',
       globalWebhookUrl: 'https://global.bitrix24.ru/rest/1/xyz/',
       isDefault: true,
     });
@@ -80,7 +75,6 @@ describe('resolveAuth', () => {
   it('resolves from env var for default account', () => {
     process.env.BITRIX24_WEBHOOK_URL = 'https://env.bitrix24.ru/rest/1/env123/';
     const auth = resolveAuth({
-      accountId: 'default',
       isDefault: true,
     });
     expect(auth).toEqual({
@@ -92,7 +86,6 @@ describe('resolveAuth', () => {
   it('returns null for non-default without credentials', () => {
     process.env.BITRIX24_WEBHOOK_URL = 'https://env.bitrix24.ru/rest/1/env123/';
     const auth = resolveAuth({
-      accountId: 'secondary',
       isDefault: false,
     });
     expect(auth).toBeNull();
@@ -100,36 +93,10 @@ describe('resolveAuth', () => {
 
   it('prefers account URL over global', () => {
     const auth = resolveAuth({
-      accountId: 'default',
       accountWebhookUrl: 'https://account.bitrix24.ru/rest/1/acc/',
       globalWebhookUrl: 'https://global.bitrix24.ru/rest/1/glob/',
       isDefault: true,
     });
     expect((auth as any).webhookUrl).toBe('https://account.bitrix24.ru/rest/1/acc/');
-  });
-});
-
-describe('isValidWebhookUrl', () => {
-  it('validates correct URL', () => {
-    expect(isValidWebhookUrl('https://test.bitrix24.ru/rest/1/abc123/')).toBe(true);
-  });
-
-  it('rejects http', () => {
-    expect(isValidWebhookUrl('http://test.bitrix24.ru/rest/1/abc123/')).toBe(false);
-  });
-
-  it('rejects non-bitrix domains', () => {
-    expect(isValidWebhookUrl('https://example.com/rest/1/abc/')).toBe(false);
-  });
-
-  it('rejects missing /rest/ path', () => {
-    expect(isValidWebhookUrl('https://test.bitrix24.ru/api/abc/')).toBe(false);
-  });
-});
-
-describe('domainFromWebhookUrl', () => {
-  it('extracts domain', () => {
-    expect(domainFromWebhookUrl('https://test.bitrix24.ru/rest/1/abc/'))
-      .toBe('test.bitrix24.ru');
   });
 });

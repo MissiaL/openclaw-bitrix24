@@ -1,23 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Bitrix24Client, Bitrix24Error, createClientFromWebhook } from '../../src/bitrix24/client.js';
 import { OAuthError } from '../../src/bitrix24/oauth.js';
+import { mockHttp } from '../helpers/http-mock.js';
 
-vi.mock('axios', () => {
-  const mockPost = vi.fn();
-  const mockGet = vi.fn();
-  const mockCreate = vi.fn(() => ({ post: mockPost, get: mockGet }));
-  return {
-    default: {
-      create: mockCreate,
-      get: mockGet,
-    },
-    __mockPost: mockPost,
-    __mockGet: mockGet,
-    __mockCreate: mockCreate,
-  };
-});
-
-const { __mockPost: mockPost, __mockGet: mockGet, __mockCreate: mockCreate } = await import('axios') as any;
+const { mockPost, mockGet } = mockHttp();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -44,13 +30,13 @@ describe('createClientFromWebhook', () => {
     client.destroy();
   });
 
-  it('creates axios instance with webhook URL as baseURL', () => {
+  it('posts to the webhook URL as base', async () => {
+    mockPost.mockResolvedValueOnce({ data: { result: true } });
     const client = createClientFromWebhook('https://portal.bitrix24.ru/rest/5/secret/');
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseURL: 'https://portal.bitrix24.ru/rest/5/secret',
-        timeout: 30000,
-      }),
+    await client.callMethod('app.info');
+    expect(fetch).toHaveBeenCalledWith(
+      'https://portal.bitrix24.ru/rest/5/secret/app.info',
+      expect.objectContaining({ method: 'POST' }),
     );
     client.destroy();
   });
@@ -175,7 +161,7 @@ describe('Bitrix24Client rate-limit retry', () => {
     });
 
     const maxRetries = 3;
-    const client = makeRetryClient({ rateLimitMaxRetries: maxRetries });
+    const client = makeRetryClient();
 
     await expect(client.callMethod('crm.deal.get', { id: 1 })).rejects.toMatchObject({
       code: 'QUERY_LIMIT_EXCEEDED',
@@ -186,7 +172,7 @@ describe('Bitrix24Client rate-limit retry', () => {
 
   it('retries once on HTTP 503 and resolves on success', async () => {
     mockPost
-      .mockRejectedValueOnce({ response: { status: 503 } })
+      .mockResolvedValueOnce({ status: 503 })
       .mockResolvedValueOnce({ data: { result: 'ok' } });
 
     const client = makeRetryClient();
@@ -198,7 +184,7 @@ describe('Bitrix24Client rate-limit retry', () => {
 
   it('retries once on HTTP 429 and resolves on success', async () => {
     mockPost
-      .mockRejectedValueOnce({ response: { status: 429 } })
+      .mockResolvedValueOnce({ status: 429 })
       .mockResolvedValueOnce({ data: { result: 'ok' } });
 
     const client = makeRetryClient();
@@ -254,67 +240,6 @@ describe('Bitrix24Client.probe', () => {
   });
 });
 
-// ── Bitrix24Client.updateTokens ──────────────────────────────────────────────
-
-describe('Bitrix24Client.updateTokens', () => {
-  it('updates OAuth access and refresh tokens', async () => {
-    mockPost.mockResolvedValue({
-      data: { result: { ID: '1' } },
-    });
-
-    const client = new Bitrix24Client({
-      domain: 'oauth.bitrix24.ru',
-      auth: { type: 'oauth', accessToken: 'old_token', refreshToken: 'old_refresh' },
-    });
-
-    client.updateTokens('new_token', 'new_refresh');
-
-    await client.callMethod('user.current');
-
-    expect(mockPost).toHaveBeenCalledWith('/user.current', { auth: 'new_token' });
-    client.destroy();
-  });
-
-  it('updates only access token when refresh is omitted', async () => {
-    mockPost.mockResolvedValue({
-      data: { result: { ID: '1' } },
-    });
-
-    const client = new Bitrix24Client({
-      domain: 'oauth.bitrix24.ru',
-      auth: { type: 'oauth', accessToken: 'old', refreshToken: 'keep_this' },
-    });
-
-    client.updateTokens('new_access');
-
-    await client.callMethod('user.current');
-    expect(mockPost).toHaveBeenCalledWith('/user.current', { auth: 'new_access' });
-    client.destroy();
-  });
-
-  it('updates expiresAt when provided', () => {
-    const client = new Bitrix24Client({
-      domain: 'oauth.bitrix24.ru',
-      auth: { type: 'oauth', accessToken: 'tok' },
-    });
-
-    client.updateTokens('tok2', 'ref2', 1700000000000);
-    // No throw means success; actual expiresAt is verified via proactive refresh tests
-    client.destroy();
-  });
-
-  it('does nothing for webhook auth', () => {
-    const client = new Bitrix24Client({
-      domain: 'wh.bitrix24.ru',
-      auth: { type: 'webhook', webhookUrl: 'https://wh.bitrix24.ru/rest/1/x/' },
-    });
-
-    // Should not throw
-    client.updateTokens('anything');
-    client.destroy();
-  });
-});
-
 // ── OAuth auto-refresh (proactive) ──────────────────────────────────────────
 
 describe('Bitrix24Client OAuth proactive refresh', () => {
@@ -357,15 +282,7 @@ describe('Bitrix24Client OAuth proactive refresh', () => {
 
     // Refresh was called
     expect(mockGet).toHaveBeenCalledWith(
-      'https://oauth.bitrix.info/oauth/token/',
-      expect.objectContaining({
-        params: expect.objectContaining({
-          grant_type: 'refresh_token',
-          client_id: 'cid',
-          client_secret: 'csecret',
-          refresh_token: 'old_refresh',
-        }),
-      }),
+      'https://oauth.bitrix.info/oauth/token/?grant_type=refresh_token&client_id=cid&client_secret=csecret&refresh_token=old_refresh',
     );
     // API called with new token
     expect(mockPost).toHaveBeenCalledWith('/user.current', { auth: 'refreshed_access' });
@@ -451,6 +368,29 @@ describe('Bitrix24Client OAuth reactive refresh', () => {
     mockPost.mockResolvedValueOnce({
       data: { error: 'NO_AUTH_FOUND', error_description: '' },
     });
+    mockGet.mockResolvedValueOnce({ data: refreshResponse });
+    mockPost.mockResolvedValueOnce({ data: { result: 'ok' } });
+
+    const client = new Bitrix24Client({
+      domain: 'test.bitrix24.ru',
+      auth: {
+        type: 'oauth',
+        accessToken: 'tok',
+        refreshToken: 'ref',
+        clientId: 'cid',
+        clientSecret: 'csecret',
+        expiresAt: Date.now() + 60000,
+      },
+    });
+
+    await expect(client.callMethod('test.method')).resolves.toBe('ok');
+    client.destroy();
+  });
+
+  // Bitrix24 answers an expired token with HTTP 401 + a JSON error body; the
+  // body must still be read so the refresh path runs.
+  it('refreshes and retries on HTTP 401 expired_token', async () => {
+    mockPost.mockResolvedValueOnce({ status: 401, data: { error: 'expired_token' } });
     mockGet.mockResolvedValueOnce({ data: refreshResponse });
     mockPost.mockResolvedValueOnce({ data: { result: 'ok' } });
 
@@ -644,20 +584,18 @@ describe('Bitrix24Client verifyConnection', () => {
 
 describe('Bitrix24Client OAuth concurrent dedup', () => {
   it('coalesces concurrent refresh attempts into one call', async () => {
-    // All three calls hit expired_token
+    // Both calls (within the 2-req burst of the rate limiter) hit expired_token
     mockPost
-      .mockResolvedValueOnce({ data: { error: 'expired_token', error_description: '' } })
       .mockResolvedValueOnce({ data: { error: 'expired_token', error_description: '' } })
       .mockResolvedValueOnce({ data: { error: 'expired_token', error_description: '' } });
 
     // Single refresh
     mockGet.mockResolvedValueOnce({ data: refreshResponse });
 
-    // Three retries succeed
+    // Both retries succeed
     mockPost
       .mockResolvedValueOnce({ data: { result: 'a' } })
-      .mockResolvedValueOnce({ data: { result: 'b' } })
-      .mockResolvedValueOnce({ data: { result: 'c' } });
+      .mockResolvedValueOnce({ data: { result: 'b' } });
 
     const client = new Bitrix24Client({
       domain: 'test.bitrix24.ru',
@@ -669,17 +607,12 @@ describe('Bitrix24Client OAuth concurrent dedup', () => {
         clientSecret: 'csecret',
         expiresAt: Date.now() + 60000,
       },
-      rateLimit: 100, // high limit so all run concurrently
     });
 
-    const results = await Promise.all([
-      client.callMethod('m1'),
-      client.callMethod('m2'),
-      client.callMethod('m3'),
-    ]);
+    const results = await Promise.all([client.callMethod('m1'), client.callMethod('m2')]);
 
-    expect(results).toEqual(['a', 'b', 'c']);
-    // Only one refresh call despite three concurrent failures
+    expect(results).toEqual(['a', 'b']);
+    // Only one refresh call despite two concurrent failures
     expect(mockGet).toHaveBeenCalledTimes(1);
     client.destroy();
   });

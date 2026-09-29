@@ -1,19 +1,14 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
-vi.mock('axios', () => ({
-  default: { get: vi.fn() },
-}));
-
-import axios from 'axios';
+import { mockHttp } from '../helpers/http-mock.js';
 import {
-  exchangeCode,
   refreshTokens,
   expiresAtFromResponse,
   isTokenExpired,
   OAuthError,
 } from '../../src/bitrix24/oauth.js';
 
-const mockGet = axios.get as ReturnType<typeof vi.fn>;
+const { mockGet } = mockHttp();
 
 const tokenResponse = {
   access_token: 'new_access',
@@ -30,66 +25,6 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// ── exchangeCode ─────────────────────────────────────────────────────────────
-
-describe('exchangeCode', () => {
-  it('returns token response on success', async () => {
-    mockGet.mockResolvedValueOnce({ data: tokenResponse });
-
-    const result = await exchangeCode({
-      code: 'auth_code_123',
-      clientId: 'client_id',
-      clientSecret: 'client_secret',
-    });
-
-    expect(result).toEqual(tokenResponse);
-    expect(mockGet).toHaveBeenCalledWith(
-      'https://oauth.bitrix.info/oauth/token/',
-      {
-        params: {
-          grant_type: 'authorization_code',
-          client_id: 'client_id',
-          client_secret: 'client_secret',
-          code: 'auth_code_123',
-        },
-      },
-    );
-  });
-
-  it('throws OAuthError on error response', async () => {
-    mockGet.mockResolvedValueOnce({
-      data: { error: 'invalid_request', error_description: 'Bad code' },
-    });
-
-    await expect(
-      exchangeCode({ code: 'bad', clientId: 'id', clientSecret: 'secret' }),
-    ).rejects.toThrow(OAuthError);
-
-    try {
-      mockGet.mockResolvedValueOnce({
-        data: { error: 'invalid_request', error_description: 'Bad code' },
-      });
-      await exchangeCode({ code: 'bad', clientId: 'id', clientSecret: 'secret' });
-    } catch (err) {
-      expect(err).toBeInstanceOf(OAuthError);
-      expect((err as OAuthError).oauthCode).toBe('invalid_request');
-      expect((err as OAuthError).oauthDescription).toBe('Bad code');
-    }
-  });
-
-  it('handles missing error_description', async () => {
-    mockGet.mockResolvedValueOnce({
-      data: { error: 'server_error' },
-    });
-
-    try {
-      await exchangeCode({ code: 'x', clientId: 'id', clientSecret: 'secret' });
-    } catch (err) {
-      expect((err as OAuthError).oauthDescription).toBe('');
-    }
-  });
-});
-
 // ── refreshTokens ────────────────────────────────────────────────────────────
 
 describe('refreshTokens', () => {
@@ -104,15 +39,7 @@ describe('refreshTokens', () => {
 
     expect(result).toEqual(tokenResponse);
     expect(mockGet).toHaveBeenCalledWith(
-      'https://oauth.bitrix.info/oauth/token/',
-      {
-        params: {
-          grant_type: 'refresh_token',
-          client_id: 'client_id',
-          client_secret: 'client_secret',
-          refresh_token: 'old_refresh',
-        },
-      },
+      'https://oauth.bitrix.info/oauth/token/?grant_type=refresh_token&client_id=client_id&client_secret=client_secret&refresh_token=old_refresh',
     );
   });
 

@@ -1,11 +1,11 @@
 import { AccountManager, type RawChannelConfig } from '../../../src/bitrix24/accounts.js';
-import { registerBot, unregisterBot, updateBotEventUrls, ensureWebhookMode } from '../../../src/bitrix24/bot.js';
+import { registerBot, ensureWebhookMode } from '../../../src/bitrix24/bot.js';
 import { sendMessage, sendTyping } from '../../../src/bitrix24/send.js';
 import { ensureBotCommands } from '../../../src/bitrix24/commands.js';
 import { downloadFile } from '../../../src/bitrix24/files.js';
 import type { IncomingMessage, MediaAttachment } from '../../../src/bitrix24/types.js';
 import { getBitrix24Runtime } from './runtime.js';
-import { persistConfigValue, persistConfigMutation, setConfigPath, upsertBitrix24Account, DURABLE_AFTER_WRITE } from './persist.js';
+import { persistConfigValue, persistConfigMutation, setConfigPath, upsertBitrix24Account } from './persist.js';
 
 /**
  * Heuristic check for a webhook base URL that Bitrix24's servers (which live
@@ -252,7 +252,7 @@ export class Bitrix24Channel {
           return;
         }
         runtime.logger.info(`Bitrix24 public URL changed for "${accountId}" (${registered ?? 'unknown'} -> ${base}); updating bot webhook URL...`);
-        await updateBotEventUrls(client, {
+        await ensureWebhookMode(client, {
           botId: account.botId,
           botClientId: account.bot.clientId,
           accountId,
@@ -370,27 +370,6 @@ export class Bitrix24Channel {
   }
 
   /**
-   * Stop an account: unregister the bot.
-   */
-  async logoutAccount(accountId: string): Promise<void> {
-    const runtime = getBitrix24Runtime();
-    const account = this.accountManager.getAccount(accountId);
-    if (!account?.botId) return;
-    if (!account.bot.clientId) {
-      runtime.logger.warn(`Cannot unregister Bitrix24 bot for "${accountId}": bot token is missing`);
-      return;
-    }
-
-    try {
-      const client = this.accountManager.getClient(accountId);
-      await unregisterBot(client, account.botId, account.bot.clientId);
-      runtime.logger.info(`Bitrix24 bot unregistered for "${accountId}"`);
-    } catch (err) {
-      runtime.logger.warn(`Failed to unregister bot for "${accountId}": ${err}`);
-    }
-  }
-
-  /**
    * Check account health.
    */
   async probeAccount(accountId: string): Promise<{ ok: boolean; error?: string }> {
@@ -438,15 +417,10 @@ export class Bitrix24Channel {
     this.accountManager.setApplicationToken(accountId, token);
 
     const runtime = getBitrix24Runtime();
-    if (typeof runtime.mutateConfigFile !== 'function') {
-      runtime.logger.warn(
-        `[bitrix24] host does not support durable config writes; application_token for "${accountId}" not persisted`,
-      );
-      return;
-    }
-
-    runtime.mutateConfigFile({
-      afterWrite: DURABLE_AFTER_WRITE,
+    persistConfigMutation({
+      mutateConfigFile: runtime.mutateConfigFile,
+      logger: runtime.logger,
+      description: `application_token for "${accountId}"`,
       mutate: (draft: any) => upsertBitrix24Account(draft, accountId, { applicationToken: token }),
     }).catch((err: unknown) => {
       runtime.logger.warn(

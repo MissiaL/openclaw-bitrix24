@@ -11,7 +11,7 @@ function makeIncomingMessage(overrides?: Partial<IncomingMessage>): IncomingMess
   return {
     messageId: 100,
     dialogId: 'chat42',
-    text: '[b]hi[/b]',
+    text: '**hi**',
     fromUserId: 7,
     fromUserName: 'Ivan',
     fromUserLastName: 'Petrov',
@@ -34,6 +34,8 @@ function makeFakeChannel() {
     }),
     sendTextMessage: vi.fn().mockResolvedValue(undefined),
     sendTypingIndicator: vi.fn().mockResolvedValue(undefined),
+    isUserAllowed: vi.fn(() => true),
+    getCommandUsers: vi.fn((): string[] => []),
     downloadAttachment: vi.fn().mockResolvedValue({
       buffer: Buffer.from('file-bytes'),
       fileName: 'doc.pdf',
@@ -165,12 +167,12 @@ describe('wireInboundDispatch', () => {
     expect(channel.onMessage).toHaveBeenCalledOnce();
   });
 
-  it('resolves the agent route and runs inbound.run with a BB->MD Body and the resolved session/agent', async () => {
+  it('resolves the agent route and runs inbound.run with the Markdown Body and the resolved session/agent', async () => {
     const { runtime, run, resolveAgentRoute } = makeRuntime();
     const api = makeFakeApi({ runtime });
 
     wireInboundDispatch(api as any, channel as any);
-    await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ text: '[b]hi[/b]', dialogId: 'chat42' }));
+    await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ text: '**hi**', dialogId: 'chat42' }));
 
     expect(resolveAgentRoute).toHaveBeenCalledOnce();
     const routeArgs = resolveAgentRoute.mock.calls[0][0];

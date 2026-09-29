@@ -15,8 +15,7 @@ function buildWebhookUrl(webhookBaseUrl: string, accountId: string): string {
  * Register an OpenClaw chatbot in a Bitrix24 portal via `imbot.v2.Bot.register`.
  *
  * Idempotent on `fields.code`: a repeat call with the same code returns the
- * existing bot without updating it (use `updateBot`/`updateBotEventUrls` to
- * change fields on an already-registered bot).
+ * existing bot without updating it (use `ensureWebhookMode` to re-point it).
  */
 export async function registerBot(
   client: Bitrix24Client,
@@ -57,33 +56,10 @@ export async function registerBot(
 }
 
 /**
- * Update bot properties (name, avatar, etc.) via `imbot.v2.Bot.update`.
- */
-export async function updateBot(
-  client: Bitrix24Client,
-  botId: number,
-  botClientId: string,
-  config: Partial<BotConfig>,
-): Promise<void> {
-  const properties: Record<string, any> = {};
-  if (config.name !== undefined) properties.name = config.name;
-  if (config.lastName !== undefined) properties.lastName = config.lastName;
-  if (config.color !== undefined) properties.color = config.color;
-  if (config.workPosition !== undefined) properties.workPosition = config.workPosition;
-  if (config.avatar !== undefined) properties.avatar = config.avatar;
-
-  if (Object.keys(properties).length === 0) return;
-
-  await client.callMethod('imbot.v2.Bot.update', {
-    botId,
-    botToken: botClientId,
-    fields: { properties },
-  });
-}
-
-/**
  * Force an already-registered bot into `eventMode: 'webhook'` at the given
- * base URL via `imbot.v2.Bot.update`.
+ * base URL via `imbot.v2.Bot.update`. Used both right after register and
+ * whenever the public base URL changes — Bitrix24 re-points the bot's 8
+ * internal `ONIMBOTV2*` subscriptions automatically.
  *
  * `imbot.v2.Bot.register` is idempotent on `fields.code`: a repeat call
  * against an EXISTING bot (e.g. a bot that pre-dates this v2 migration, or
@@ -108,40 +84,5 @@ export async function ensureWebhookMode(
     botId: params.botId,
     botToken: params.botClientId,
     fields: { eventMode: 'webhook', webhookUrl },
-  });
-}
-
-/**
- * Point an already-registered bot's webhook URL at a new public base URL.
- *
- * `imbot.v2.Bot.register` with an existing `code` returns the existing bot
- * but does NOT refresh its `webhookUrl`, so a publicUrl change requires an
- * explicit `imbot.v2.Bot.update` call. Bitrix24 automatically re-points the
- * bot's 8 internal `ONIMBOTV2*` event subscriptions to the new URL — no
- * manual event.bind/unbind is needed.
- */
-export async function updateBotEventUrls(
-  client: Bitrix24Client,
-  params: { botId: number; botClientId: string; accountId: string; webhookBaseUrl: string },
-): Promise<void> {
-  const webhookUrl = buildWebhookUrl(params.webhookBaseUrl, params.accountId);
-  await client.callMethod('imbot.v2.Bot.update', {
-    botId: params.botId,
-    botToken: params.botClientId,
-    fields: { webhookUrl },
-  });
-}
-
-/**
- * Unregister (delete) the bot from Bitrix24 via `imbot.v2.Bot.unregister`.
- */
-export async function unregisterBot(
-  client: Bitrix24Client,
-  botId: number,
-  botClientId: string,
-): Promise<void> {
-  await client.callMethod('imbot.v2.Bot.unregister', {
-    botId,
-    botToken: botClientId,
   });
 }

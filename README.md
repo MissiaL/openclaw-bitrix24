@@ -297,15 +297,13 @@ openclaw-bitrix24/
     files.ts                     #   File send/receive via imbot.v2.File.upload/download (filename/MIME from response headers)
     format.ts                    #   Markdown <-> BB-code conversion
     receive.ts                   #   Parse incoming imbot.v2 webhook events (messages, commands, files, quotes); TOFU verification
-    send.ts                      #   Send messages (chunking, typing, media) via imbot.v2.Chat.*
-    targets.ts                   #   DIALOG_ID parsing (user vs. chat)
+    send.ts                      #   Send messages (chunking, media) via imbot.v2.Chat.*
     token.ts                     #   Auth resolution (webhook URL / OAuth / env)
     types.ts                     #   TypeScript interfaces
     webhook-server.ts            #   Single-endpoint Express router for all imbot.v2 events (message-id dedup)
   tests/unit/                    # Unit tests
     format.test.ts               #   Markdown/BB-code conversion tests
     receive.test.ts              #   Event parsing tests
-    targets.test.ts              #   DIALOG_ID parsing tests
     token.test.ts                #   Auth resolution tests
 ```
 
@@ -406,7 +404,7 @@ The Bitrix24 webhook or OAuth app needs these scopes:
 
 ### Rate limit errors (`QUERY_LIMIT_EXCEEDED` / HTTP 503 / HTTP 429)
 
-Bitrix24's own docs disagree on the exact signal (`limits.md`/`error-codes.md` say HTTP 503 + `QUERY_LIMIT_EXCEEDED`; the imbot.v2 limits table says HTTP 429), so the client retries with exponential backoff on either, plus `OVERLOAD_LIMIT`/`OPERATION_TIME_LIMIT`. The client also enforces a 2 req/s token-bucket rate limiter by default. If you still hit limits, reduce the `rateLimit` config or avoid parallel requests to the same portal.
+Bitrix24's own docs disagree on the exact signal (`limits.md`/`error-codes.md` say HTTP 503 + `QUERY_LIMIT_EXCEEDED`; the imbot.v2 limits table says HTTP 429), so the client retries with exponential backoff on either, plus `OVERLOAD_LIMIT`/`OPERATION_TIME_LIMIT`. The client also enforces a 2 req/s token-bucket rate limiter. If you still hit limits, avoid parallel requests to the same portal.
 
 ### Long messages are truncated
 

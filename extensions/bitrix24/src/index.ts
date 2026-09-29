@@ -1,6 +1,6 @@
 import { Bitrix24Channel } from './channel.js';
 import { setBitrix24Runtime } from './runtime.js';
-import { persistConfigValue, DURABLE_AFTER_WRITE, type ConfigMutator } from './persist.js';
+import { persistConfigValue, persistConfigMutation, upsertBitrix24Account, type ConfigMutator } from './persist.js';
 import { wireInboundDispatch } from './inbound-dispatch.js';
 import { loadOutboundMedia } from './outbound-media.js';
 import { createWebhookApp } from '../../../src/bitrix24/webhook-server.js';
@@ -80,13 +80,6 @@ export default function register(api: any): void {
   channel.setTokenRefreshCallback(async (accountId, tokens) => {
     api.logger.info(`OAuth tokens refreshed for Bitrix24 account "${accountId}"`);
 
-    if (typeof mutateConfigFile !== 'function') {
-      api.logger.warn(
-        `[bitrix24] host does not support durable config writes; OAuth tokens for "${accountId}" not persisted`,
-      );
-      return;
-    }
-
     // This callback is awaited from Bitrix24Client.callMethod's hot path
     // (doRefresh -> onTokenRefresh) whenever an unrelated API call triggers a
     // token refresh. Persistence is best-effort: a config-write failure (host
@@ -94,20 +87,11 @@ export default function register(api: any): void {
     // call that triggered the refresh, so we swallow and warn instead of
     // letting the rejection propagate.
     try {
-      await mutateConfigFile({
-        afterWrite: DURABLE_AFTER_WRITE,
-        mutate: (draft: any) => {
-          const bitrix24 = (draft.channels ??= {}).bitrix24 ??= {};
-          const accounts: any[] = (bitrix24.accounts ??= []);
-          let account = accounts.find((a) => a?.id === accountId);
-          if (!account) {
-            account = { id: accountId };
-            accounts.push(account);
-          }
-          account.accessToken = tokens.accessToken;
-          account.refreshToken = tokens.refreshToken;
-          account.expiresAt = tokens.expiresAt;
-        },
+      await persistConfigMutation({
+        mutateConfigFile,
+        logger: api.logger,
+        description: `OAuth tokens for "${accountId}"`,
+        mutate: (draft: any) => upsertBitrix24Account(draft, accountId, tokens),
       });
     } catch (err) {
       api.logger.warn(

@@ -1,6 +1,5 @@
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, sep } from 'node:path';
-import { bbCodeToMarkdown } from '../../../src/bitrix24/format.js';
 import type { IncomingMessage } from '../../../src/bitrix24/types.js';
 import type { Bitrix24Channel } from './channel.js';
 import { maybeCreateDynamicAgent } from './dynamic-agent.js';
@@ -129,10 +128,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           `from=${msg.fromUserId} chatType=${msg.chatType} len=${msg.text?.length ?? 0}${textDiag}`,
       );
 
-      if (
-        typeof channel.isUserAllowed === 'function' &&
-        !channel.isUserAllowed(accountId, String(msg.fromUserId))
-      ) {
+      if (!channel.isUserAllowed(accountId, String(msg.fromUserId))) {
         api.logger.warn(`[bitrix24] user ${msg.fromUserId} not in allowUsers for acct=${accountId} — refused`);
         await channel.sendTextMessage(accountId, String(msg.dialogId), 'У вас нет доступа к этому боту. Обратитесь к администратору.');
         return;
@@ -216,9 +212,9 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
           `matchedBy=${route?.matchedBy} storePath=${storePath ?? '(none)'}`,
       );
 
-      // Inbound text is BB-code; the agent wants Markdown. (Outbound Markdown ->
-      // BB-code happens inside sendTextMessage.)
-      const body = bbCodeToMarkdown(msg.text ?? '');
+      // Already Markdown: parseMessageEvent converts inbound BB-code.
+      // (Outbound Markdown -> BB-code happens inside sendTextMessage.)
+      const body = msg.text ?? '';
       const senderName =
         [msg.fromUserName, msg.fromUserLastName].filter(Boolean).join(' ').trim() || undefined;
 
@@ -273,8 +269,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       // deny — the bot is reachable by every portal employee, and /restart
       // must not be. Without CommandAuthorized: true the host treats a
       // "/command" message as plain agent text.
-      const commandUsers =
-        typeof channel.getCommandUsers === 'function' ? channel.getCommandUsers(routeAccountId) : [];
+      const commandUsers = channel.getCommandUsers(routeAccountId);
       const commandAuthorized =
         commandUsers.includes('*') || commandUsers.includes(String(msg.fromUserId));
 

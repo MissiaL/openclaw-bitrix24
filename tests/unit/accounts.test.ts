@@ -2,14 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { AccountManager, type RawChannelConfig } from '../../src/bitrix24/accounts.js';
 
-vi.mock('axios', () => {
-  const mockPost = vi.fn();
-  const mockCreate = vi.fn(() => ({ post: mockPost }));
-  return {
-    default: { create: mockCreate },
-    __mockPost: mockPost,
-  };
-});
 
 const savedEnv = process.env.BITRIX24_WEBHOOK_URL;
 

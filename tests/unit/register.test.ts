@@ -1,14 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import { mockHttp } from '../helpers/http-mock.js';
 
-vi.mock('axios', () => {
-  const mockPost = vi.fn().mockResolvedValue({
-    data: { result: { scope: ['imbot', 'im', 'disk'], license: 'pro' } },
-  });
-  const mockCreate = vi.fn(() => ({ post: mockPost }));
-  return {
-    default: { create: mockCreate },
-    __mockPost: mockPost,
-  };
+mockHttp().mockPost.mockResolvedValue({
+  data: { result: { scope: ['imbot', 'im', 'disk'], license: 'pro' } },
 });
 
 import register from '../../extensions/bitrix24/src/index.js';

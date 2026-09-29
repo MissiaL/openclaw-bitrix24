@@ -173,53 +173,6 @@ describe('parseMessageEvent', () => {
 
   // ── Inbound files (spec §11 — UNVERIFIABLE, defensive parsing) ────────────
 
-  it('extracts files from params.files as an ARRAY', () => {
-    const event = makeMessageEvent({
-      params: { files: [{ id: 138, name: 'report.pdf', size: 35341 }] },
-    });
-    const msg = parseMessageEvent(event);
-    expect(msg!.files).toEqual([{ id: '138', name: 'report.pdf', size: 35341 }]);
-  });
-
-  it('extracts files from params.files as an OBJECT MAP', () => {
-    const event = makeMessageEvent({
-      params: { files: { f1: { id: 200, name: 'photo.jpg', size: 999 } } },
-    });
-    const msg = parseMessageEvent(event);
-    expect(msg!.files).toEqual([{ id: '200', name: 'photo.jpg', size: 999 }]);
-  });
-
-  it('extracts a [disk=N] BBCode token from message.text (case-insensitive)', () => {
-    const event = makeMessageEvent({ text: 'here is a file [DISK=321] enjoy' });
-    const msg = parseMessageEvent(event);
-    expect(msg!.files).toEqual([{ id: '321' }]);
-  });
-
-  it('extracts the legacy [DISK FILE ID=N] BBCode token from message.text', () => {
-    const event = makeMessageEvent({ text: 'see attachment [disk file id=555]' });
-    const msg = parseMessageEvent(event);
-    expect(msg!.files).toEqual([{ id: '555' }]);
-  });
-
-  it('de-duplicates a file id present in both params.files and a text token', () => {
-    const event = makeMessageEvent({
-      params: { files: [{ id: 138, name: 'report.pdf', size: 35341 }] },
-      text: 'file attached [disk=138]',
-    });
-    const msg = parseMessageEvent(event);
-    expect(msg!.files).toHaveLength(1);
-    expect(msg!.files[0]).toEqual({ id: '138', name: 'report.pdf', size: 35341 });
-  });
-
-  it('handles multiple distinct files across array + text tokens', () => {
-    const event = makeMessageEvent({
-      params: { files: [{ id: 1, name: 'a.txt', size: 10 }] },
-      text: 'also see [disk=2] and [DISK FILE ID=3]',
-    });
-    const msg = parseMessageEvent(event);
-    expect(msg!.files.map((f) => f.id).sort()).toEqual(['1', '2', '3']);
-  });
-
   // LIVE-VERIFIED 2026-07-07 on portal portal.example.bitrix24.ru: a real
   // user-attached document arrives as `message.params.FILE_ID: ["915877"]` —
   // an array of Drive file id STRINGS under the uppercase FILE_ID key. None
@@ -259,16 +212,10 @@ describe('parseMessageEvent', () => {
     expect(msg!.replyToMessageId).toBeUndefined();
   });
 
-  it('de-duplicates FILE_ID against params.files entries', () => {
-    const event = makeMessageEvent({
-      params: {
-        FILE_ID: ['138'],
-        files: [{ id: 138, name: 'report.pdf', size: 35341 }],
-      },
-    });
+  it('de-duplicates repeated FILE_ID entries and skips empty ones', () => {
+    const event = makeMessageEvent({ params: { FILE_ID: ['138', ' 138 ', '', null] } });
     const msg = parseMessageEvent(event);
-    expect(msg!.files).toHaveLength(1);
-    expect(msg!.files[0]).toEqual({ id: '138', name: 'report.pdf', size: 35341 });
+    expect(msg!.files).toEqual([{ id: '138' }]);
   });
 });
 

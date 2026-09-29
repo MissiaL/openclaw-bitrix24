@@ -18,7 +18,7 @@ export type ConfigMutator = (params: {
 // for the next restart — they must NOT trigger a gateway reload/restart, which
 // would interrupt an in-flight agent turn. `mode: 'none'` writes without any
 // restart/hot-reload.
-export const DURABLE_AFTER_WRITE = {
+const DURABLE_AFTER_WRITE = {
   mode: 'none',
   reason: 'bitrix24 plugin durability write',
 } as const;

@@ -1,5 +1,3 @@
-import axios from 'axios';
-
 /** Bitrix24 central OAuth endpoint. */
 const OAUTH_URL = 'https://oauth.bitrix.info/oauth/token/';
 
@@ -27,29 +25,6 @@ export class OAuthError extends Error {
 }
 
 /**
- * Exchange an authorization code for tokens.
- * Called once during initial app installation.
- */
-export async function exchangeCode(params: {
-  code: string;
-  clientId: string;
-  clientSecret: string;
-}): Promise<TokenResponse> {
-  const { data } = await axios.get(OAUTH_URL, {
-    params: {
-      grant_type: 'authorization_code',
-      client_id: params.clientId,
-      client_secret: params.clientSecret,
-      code: params.code,
-    },
-  });
-  if (data.error) {
-    throw new OAuthError(data.error, data.error_description ?? '');
-  }
-  return data as TokenResponse;
-}
-
-/**
  * Refresh an expired access token.
  * Returns new access_token + refresh_token pair.
  */
@@ -58,14 +33,14 @@ export async function refreshTokens(params: {
   clientId: string;
   clientSecret: string;
 }): Promise<TokenResponse> {
-  const { data } = await axios.get(OAUTH_URL, {
-    params: {
-      grant_type: 'refresh_token',
-      client_id: params.clientId,
-      client_secret: params.clientSecret,
-      refresh_token: params.refreshToken,
-    },
+  const query = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: params.clientId,
+    client_secret: params.clientSecret,
+    refresh_token: params.refreshToken,
   });
+  const res = await fetch(`${OAUTH_URL}?${query}`, { signal: AbortSignal.timeout(30000) });
+  const data: any = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
   if (data.error) {
     throw new OAuthError(data.error, data.error_description ?? '');
   }

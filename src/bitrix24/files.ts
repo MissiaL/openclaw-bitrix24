@@ -101,16 +101,6 @@ export async function downloadFile(
 }
 
 /**
- * Determine media type category from mime type.
- */
-export function mediaKind(mimeType: string): 'image' | 'video' | 'audio' | 'document' {
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  return 'document';
-}
-
-/**
  * Guess MIME type from file extension.
  */
 function guessMimeType(fileName: string): string {

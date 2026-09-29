@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { fileNameFromDisposition } from '../../../src/bitrix24/client.js';
 
 /**
  * Resolve the host's outbound `mediaUrl` into a Bitrix upload attachment.
@@ -24,19 +25,10 @@ export async function loadOutboundMedia(
       throw new Error(`outbound media fetch failed: HTTP ${res.status} for ${mediaUrl}`);
     }
     const buffer = Buffer.from(await res.arrayBuffer());
-    const disposition = res.headers.get('content-disposition') ?? '';
-    const extended = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(disposition);
-    const plain = /filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;\s]+)/.exec(disposition);
-    let fileName = '';
-    if (extended) {
-      try {
-        fileName = decodeURIComponent(extended[1].trim());
-      } catch {
-        // Malformed encoding — fall through to the plain form / URL path.
-      }
-    }
-    fileName ||= (plain?.[1] ?? plain?.[2] ?? '').trim();
-    fileName ||= basename(new URL(mediaUrl).pathname) || 'file';
+    const fileName =
+      fileNameFromDisposition(res.headers.get('content-disposition')) ||
+      basename(new URL(mediaUrl).pathname) ||
+      'file';
     const mimeType =
       res.headers.get('content-type')?.split(';')[0].trim() || 'application/octet-stream';
     return { buffer, fileName, mimeType };

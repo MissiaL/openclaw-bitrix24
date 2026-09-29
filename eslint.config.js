@@ -10,6 +10,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '.superpowers/**'],
+    ignores: ['**/dist/**', '**/node_modules/**'],
   },
 );

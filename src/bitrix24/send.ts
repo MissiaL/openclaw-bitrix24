@@ -14,11 +14,10 @@ const DEFAULT_CHUNK_LIMIT = 18000;
  * Send a message from the bot to a Bitrix24 dialog.
  *
  * Flow:
- *   1. Send typing indicator
- *   2. Convert markdown → BB-code
- *   3. Chunk if > textChunkLimit
- *   4. Send each chunk via imbot.v2.Chat.Message.send
- *   5. Send media files via imbot.v2.File.upload (single-call upload+attach+send)
+ *   1. Convert markdown → BB-code
+ *   2. Chunk if > textChunkLimit
+ *   3. Send each chunk via imbot.v2.Chat.Message.send
+ *   4. Send media files via imbot.v2.File.upload (single-call upload+attach+send)
  */
 export async function sendMessage(
   client: Bitrix24Client,
@@ -28,17 +27,12 @@ export async function sendMessage(
   const chunkLimit = opts?.textChunkLimit ?? DEFAULT_CHUNK_LIMIT;
   const messageIds: string[] = [];
 
-  // 1. Typing indicator
-  await sendTyping(client, msg.botId, msg.botClientId, msg.dialogId).catch(() => {
-    // Non-critical — ignore errors
-  });
-
-  // 2. Convert and chunk text. A file-only message has empty text — sending
+  // 1. Convert and chunk text. A file-only message has empty text — sending
   // an empty chunk before the upload is wrong (and Bitrix may reject it).
   const bbText = markdownToBBCode(msg.text);
   const chunks = bbText.trim() === '' ? [] : chunkText(bbText, chunkLimit);
 
-  // 3. Send text chunks. Keyboard (if any) is attached to the LAST chunk only
+  // 2. Send text chunks. Keyboard (if any) is attached to the LAST chunk only
   // — use a numeric loop index rather than `chunks.indexOf(chunk)`, which is
   // both O(n^2) and wrong whenever two chunks happen to be identical strings
   // (indexOf always finds the FIRST match, attaching the keyboard there
@@ -54,7 +48,7 @@ export async function sendMessage(
     messageIds.push(id);
   }
 
-  // 4. Send media files. Their message ids join messageIds so quote-cache
+  // 3. Send media files. Their message ids join messageIds so quote-cache
   // and delivery accounting see file sends too.
   if (msg.media && msg.media.length > 0) {
     for (const media of msg.media) {
@@ -132,39 +126,4 @@ async function sendTextMessage(
     },
   );
   return String(result.id);
-}
-
-/**
- * Update an existing bot message via `imbot.v2.Chat.Message.update`.
- */
-export async function updateMessage(
-  client: Bitrix24Client,
-  botId: number,
-  botClientId: string,
-  messageId: string,
-  newText: string,
-): Promise<void> {
-  const bbText = markdownToBBCode(newText);
-  await client.callMethod('imbot.v2.Chat.Message.update', {
-    botId,
-    botToken: botClientId,
-    messageId,
-    fields: { message: bbText },
-  });
-}
-
-/**
- * Delete a bot message via `imbot.v2.Chat.Message.delete`.
- */
-export async function deleteMessage(
-  client: Bitrix24Client,
-  botId: number,
-  botClientId: string,
-  messageId: string,
-): Promise<void> {
-  await client.callMethod('imbot.v2.Chat.Message.delete', {
-    botId,
-    botToken: botClientId,
-    messageId,
-  });
 }

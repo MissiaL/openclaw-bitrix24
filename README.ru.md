@@ -292,8 +292,7 @@ openclaw-bitrix24/
     files.ts                     #   Приём/отправка файлов (imbot.v2.File.upload/download; имя/MIME из заголовков)
     format.ts                    #   Конвертация Markdown <-> BB-code
     receive.ts                   #   Разбор входящих imbot.v2-событий (сообщения, команды, файлы, цитаты); TOFU
-    send.ts                      #   Отправка сообщений (нарезка, typing, медиа) через imbot.v2.Chat.*
-    targets.ts                   #   Разбор DIALOG_ID (пользователь vs чат)
+    send.ts                      #   Отправка сообщений (нарезка, медиа) через imbot.v2.Chat.*
     token.ts                     #   Разрешение авторизации (вебхук / OAuth / env)
     types.ts                     #   TypeScript-интерфейсы
     webhook-server.ts            #   Express-роутер единого эндпоинта (дедуп по id сообщения)
@@ -386,7 +385,7 @@ npm run lint
 
 ### Ошибки лимитов (`QUERY_LIMIT_EXCEEDED` / HTTP 503 / HTTP 429)
 
-Документация Битрикс24 расходится в сигнале (503 + `QUERY_LIMIT_EXCEEDED` против 429), поэтому клиент ретраит с экспоненциальным бэкоффом оба варианта, плюс `OVERLOAD_LIMIT`/`OPERATION_TIME_LIMIT`. По умолчанию действует token-bucket лимитер 2 req/s.
+Документация Битрикс24 расходится в сигнале (503 + `QUERY_LIMIT_EXCEEDED` против 429), поэтому клиент ретраит с экспоненциальным бэкоффом оба варианта, плюс `OVERLOAD_LIMIT`/`OPERATION_TIME_LIMIT`. Также действует token-bucket лимитер 2 req/s.
 
 ### Длинные сообщения обрезаются
 

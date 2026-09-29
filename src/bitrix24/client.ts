@@ -1,4 +1,3 @@
-import axios, { AxiosInstance } from 'axios';
 import type {
   Bitrix24ClientConfig,
   BitrixApiResponse,
@@ -76,19 +75,14 @@ const RATE_LIMIT_ERROR_CODES = ['QUERY_LIMIT_EXCEEDED', 'OVERLOAD_LIMIT', 'OPERA
  * Automatic OAuth token refresh with retry-once on token errors.
  */
 export class Bitrix24Client {
-  private http: AxiosInstance;
-  private limiter: RateLimiter;
+  private baseURL: string;
+  private limiter = new RateLimiter(2);
   private config: Bitrix24ClientConfig;
   private refreshPromise: Promise<void> | null = null;
 
   constructor(config: Bitrix24ClientConfig) {
     this.config = config;
-    this.limiter = new RateLimiter(config.rateLimit ?? 2);
-
-    const baseURL = this.resolveBaseURL();
-    const timeout = config.timeout ?? 30000;
-
-    this.http = axios.create({ baseURL, timeout });
+    this.baseURL = this.resolveBaseURL();
   }
 
   private resolveBaseURL(): string {
@@ -178,16 +172,27 @@ export class Bitrix24Client {
   // ── Request helpers ────────────────────────────────────────────────────────
 
   /**
-   * Acquire a rate-limiter slot and POST once. Does not interpret the response —
-   * callers decide how to handle `data.error` / thrown errors.
+   * Acquire a rate-limiter slot and POST once. Returns the HTTP status and the
+   * parsed JSON body — Bitrix24 sends `{error, error_description}` bodies on
+   * 4xx too, so callers decide how to handle `data.error`.
    */
   private async postOnce<T>(
     method: string,
     params: Record<string, any>,
-  ): Promise<{ data: BitrixApiResponse<T> }> {
+  ): Promise<{ status: number; data: BitrixApiResponse<T> }> {
     await this.limiter.acquire();
-    const authParams = this.getAuthParams();
-    return this.http.post<BitrixApiResponse<T>>(`/${method}`, { ...params, ...authParams });
+    const res = await fetch(`${this.baseURL}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...params, ...this.getAuthParams() }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (res.status === 503 || res.status === 429) throw new RateLimitHttpError(`HTTP ${res.status}`);
+    const data = (await res.json().catch(() => ({}))) as BitrixApiResponse<T>;
+    if (!res.ok && !data.error) {
+      throw new Error(`Bitrix24 HTTP ${res.status} [${method}]`);
+    }
+    return { status: res.status, data };
   }
 
   private sleep(ms: number): Promise<void> {
@@ -206,18 +211,16 @@ export class Bitrix24Client {
   async callMethod<T = any>(method: string, params: Record<string, any> = {}): Promise<T> {
     await this.refreshIfNeeded();
 
-    const maxRetries = this.config.rateLimitMaxRetries ?? 3;
+    const maxRetries = 3;
     const baseDelayMs = this.config.rateLimitBaseDelayMs ?? 1000;
 
     for (let attempt = 0; ; attempt++) {
-      let response: { data: BitrixApiResponse<T> };
+      if (attempt > 0) await this.sleep(baseDelayMs * 2 ** (attempt - 1));
+      let response: { status: number; data: BitrixApiResponse<T> };
       try {
         response = await this.postOnce<T>(method, params);
       } catch (err) {
-        if (isRateLimitHttpError(err) && attempt < maxRetries) {
-          await this.sleep(baseDelayMs * 2 ** attempt);
-          continue;
-        }
+        if (err instanceof RateLimitHttpError && attempt < maxRetries) continue;
         throw err;
       }
 
@@ -240,7 +243,6 @@ export class Bitrix24Client {
         }
 
         if (RATE_LIMIT_ERROR_CODES.includes(response.data.error) && attempt < maxRetries) {
-          await this.sleep(baseDelayMs * 2 ** attempt);
           continue;
         }
 
@@ -268,41 +270,29 @@ export class Bitrix24Client {
     downloadUrl: string,
   ): Promise<{ buffer: Buffer; fileName?: string; contentType?: string }> {
     await this.refreshIfNeeded();
-    await this.limiter.acquire();
 
-    const authParams = this.getAuthParams();
-    const url = authParams.auth
-      ? `${downloadUrl}${downloadUrl.includes('?') ? '&' : '?'}auth=${authParams.auth}`
-      : downloadUrl;
+    const fetchOnce = async (): Promise<Response> => {
+      await this.limiter.acquire();
+      const { auth } = this.getAuthParams();
+      const url = auth
+        ? `${downloadUrl}${downloadUrl.includes('?') ? '&' : '?'}auth=${auth}`
+        : downloadUrl;
+      return fetch(url, { signal: AbortSignal.timeout(60000) });
+    };
 
-    try {
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-      return toDownloadedFile(response);
-    } catch (err) {
-      if (this.canRefresh() && isAxiosAuthError(err)) {
-        await this.forceRefresh();
-        await this.limiter.acquire();
-
-        const retryAuth = this.getAuthParams();
-        const retryUrl = retryAuth.auth
-          ? `${downloadUrl}${downloadUrl.includes('?') ? '&' : '?'}auth=${retryAuth.auth}`
-          : downloadUrl;
-        const response = await axios.get(retryUrl, { responseType: 'arraybuffer', timeout: 60000 });
-        return toDownloadedFile(response);
-      }
-      throw err;
+    let res = await fetchOnce();
+    if ((res.status === 401 || res.status === 403) && this.canRefresh()) {
+      await this.forceRefresh();
+      res = await fetchOnce();
     }
-  }
+    if (!res.ok) throw new Error(`Bitrix24 file download failed: HTTP ${res.status}`);
 
-  /**
-   * Update OAuth tokens (after manual refresh).
-   */
-  updateTokens(accessToken: string, refreshToken?: string, expiresAt?: number): void {
-    if (this.config.auth.type !== 'oauth') return;
-    const oauth = this.config.auth as OAuthAuth;
-    oauth.accessToken = accessToken;
-    if (refreshToken) oauth.refreshToken = refreshToken;
-    if (expiresAt !== undefined) oauth.expiresAt = expiresAt;
+    const rawType = res.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+    return {
+      buffer: Buffer.from(await res.arrayBuffer()),
+      fileName: fileNameFromDisposition(res.headers.get('content-disposition')),
+      contentType: rawType || undefined,
+    };
   }
 
   /**
@@ -365,66 +355,30 @@ export class Bitrix24Client {
 }
 
 /**
- * Normalize a file-download axios response: bytes plus the header-derived
- * filename (RFC 5987 `filename*=` preferred over plain `filename=`) and
- * content type (parameters like `; charset=binary` stripped).
+ * Extract the file name from a Content-Disposition header: RFC 5987
+ * `filename*=UTF-8''...` preferred over the plain `filename=` form.
  */
-function toDownloadedFile(response: {
-  data: ArrayBuffer | Buffer;
-  headers?: Record<string, unknown>;
-}): { buffer: Buffer; fileName?: string; contentType?: string } {
-  const headers = response.headers ?? {};
-  const rawType = headers['content-type'];
-  const contentType =
-    typeof rawType === 'string' && rawType.trim() !== ''
-      ? rawType.split(';')[0].trim().toLowerCase()
-      : undefined;
-
-  let fileName: string | undefined;
-  const disposition = headers['content-disposition'];
-  if (typeof disposition === 'string') {
-    const extended = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(disposition);
-    if (extended) {
-      try {
-        fileName = decodeURIComponent(extended[1].trim());
-      } catch {
-        // Malformed percent-encoding — fall through to the plain form.
-      }
-    }
-    if (!fileName) {
-      const plain = /filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;\s]+)/.exec(disposition);
-      const raw = plain?.[1] ?? plain?.[2];
-      if (raw) fileName = raw.trim();
+export function fileNameFromDisposition(disposition: string | null | undefined): string | undefined {
+  if (!disposition) return undefined;
+  const extended = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(disposition);
+  if (extended) {
+    try {
+      return decodeURIComponent(extended[1].trim());
+    } catch {
+      // Malformed percent-encoding — fall through to the plain form.
     }
   }
-
-  return { buffer: Buffer.from(response.data as ArrayBuffer), fileName, contentType };
+  const plain = /filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;\s]+)/.exec(disposition);
+  return (plain?.[1] ?? plain?.[2])?.trim() || undefined;
 }
 
 /**
- * Check if an axios error is a 401/403 auth error (for download retry).
+ * Bitrix24 may signal rate-limit exhaustion with HTTP 503 or 429 instead of a
+ * `data.error` payload. The docs disagree on which status to expect
+ * (system-errors.html says 503 + QUERY_LIMIT_EXCEEDED; the imbot.v2 limits
+ * table says 429) — handle both.
  */
-function isAxiosAuthError(err: unknown): boolean {
-  if (err && typeof err === 'object' && 'response' in err) {
-    const resp = (err as any).response;
-    return resp?.status === 401 || resp?.status === 403;
-  }
-  return false;
-}
-
-/**
- * Check if an axios error is an HTTP 503 or 429, which Bitrix24 may return
- * on rate-limit exhaustion instead of a `data.error` payload. The docs
- * disagree on which status to expect (system-errors.html says 503 +
- * QUERY_LIMIT_EXCEEDED; the imbot.v2 limits table says 429) — handle both.
- */
-function isRateLimitHttpError(err: unknown): boolean {
-  if (err && typeof err === 'object' && 'response' in err) {
-    const resp = (err as any).response;
-    return resp?.status === 503 || resp?.status === 429;
-  }
-  return false;
-}
+class RateLimitHttpError extends Error {}
 
 /**
  * Typed Bitrix24 API error.

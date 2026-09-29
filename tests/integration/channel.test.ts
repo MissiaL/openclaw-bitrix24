@@ -1,25 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 
-// Mock axios before any imports that use it
-const mockPost = vi.fn();
-const mockAxiosInstance = {
-  post: mockPost,
-  get: vi.fn(),
-  defaults: { baseURL: '' },
-  interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
-};
-
-vi.mock('axios', () => ({
-  default: {
-    create: vi.fn(() => mockAxiosInstance),
-    get: vi.fn(),
-  },
-}));
-
 import { Bitrix24Channel } from '../../extensions/bitrix24/src/channel.js';
 import { setBitrix24Runtime, type PluginRuntime } from '../../extensions/bitrix24/src/runtime.js';
 import type { IncomingMessage } from '../../src/bitrix24/types.js';
+import { mockHttp } from '../helpers/http-mock.js';
+
+const { mockPost } = mockHttp();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -255,6 +242,7 @@ describe('Bitrix24Channel integration', () => {
         botId: BOT_ID,
         botToken: TEST_BOT_CLIENT_ID,
         fields: {
+          eventMode: 'webhook',
           webhookUrl: `https://new.example/webhook/bitrix24/${TEST_ACCOUNT_ID}`,
         },
       });
@@ -342,6 +330,7 @@ describe('Bitrix24Channel integration', () => {
         botId: BOT_ID,
         botToken: TEST_BOT_CLIENT_ID,
         fields: {
+          eventMode: 'webhook',
           webhookUrl: `${TEST_WEBHOOK_BASE_URL}/webhook/bitrix24/${TEST_ACCOUNT_ID}`,
         },
       });
@@ -520,19 +509,14 @@ describe('Bitrix24Channel integration', () => {
       expect(channel.recallMessage(TEST_ACCOUNT_ID, 'nope')).toBeUndefined();
     });
 
-    it('should send typing indicator then message with BB-code', async () => {
+    it('should send the message with BB-code (typing is the dispatcher\'s job)', async () => {
       const text = 'Hello **world**';
 
       await channel.sendTextMessage(TEST_ACCOUNT_ID, DIALOG_ID, text);
 
-      // Verify typing indicator was sent
-      const typingCall = mockPost.mock.calls.find(
-        (call) => call[0] === '/imbot.v2.Chat.InputAction.notify',
+      expect(mockPost.mock.calls.map((call) => call[0])).not.toContain(
+        '/imbot.v2.Chat.InputAction.notify',
       );
-      expect(typingCall).toBeDefined();
-      expect(typingCall![1].botToken).toBe(TEST_BOT_CLIENT_ID);
-      expect(typingCall![1].botId).toBe(BOT_ID);
-      expect(typingCall![1].dialogId).toBe(DIALOG_ID);
 
       // Verify message was sent with BB-code conversion
       const messageCall = mockPost.mock.calls.find(
@@ -543,17 +527,6 @@ describe('Bitrix24Channel integration', () => {
       expect(messageCall![1].botId).toBe(BOT_ID);
       expect(messageCall![1].dialogId).toBe(DIALOG_ID);
       expect(messageCall![1].fields.message).toBe('Hello [b]world[/b]');
-    });
-
-    it('should send typing before message (call order)', async () => {
-      await channel.sendTextMessage(TEST_ACCOUNT_ID, DIALOG_ID, 'test');
-
-      const callOrder = mockPost.mock.calls.map((call) => call[0]);
-      const typingIndex = callOrder.indexOf('/imbot.v2.Chat.InputAction.notify');
-      const messageIndex = callOrder.indexOf('/imbot.v2.Chat.Message.send');
-
-      expect(typingIndex).toBeGreaterThanOrEqual(0);
-      expect(messageIndex).toBeGreaterThan(typingIndex);
     });
 
     it('should chunk and send multiple messages for long text (>18000 chars)', async () => {
@@ -589,12 +562,6 @@ describe('Bitrix24Channel integration', () => {
         expect(call[1].dialogId).toBe(DIALOG_ID);
         expect(call[1].fields.message).toBeTruthy();
       }
-
-      // Typing indicator should still be sent exactly once
-      const typingCalls = mockPost.mock.calls.filter(
-        (call) => call[0] === '/imbot.v2.Chat.InputAction.notify',
-      );
-      expect(typingCalls).toHaveLength(1);
     });
 
     it('should convert markdown formatting to BB-code', async () => {
@@ -860,71 +827,6 @@ describe('Bitrix24Channel integration', () => {
 
       expect(result.ok).toBe(false);
       expect(result.error).toContain('Network Error');
-    });
-  });
-
-  // ── 6. logoutAccount ─────────────────────────────────────────────────────
-
-  describe('logoutAccount', () => {
-    const BOT_ID = 42;
-
-    beforeEach(async () => {
-      // Register bot first
-      mockApiResponse('imbot.v2.Bot.register', { bot: { id: BOT_ID, code: `openclaw_${TEST_ACCOUNT_ID}` } });
-      await channel.startupAccount(TEST_ACCOUNT_ID);
-      vi.clearAllMocks();
-    });
-
-    it('should call imbot.v2.Bot.unregister with the bot ID', async () => {
-      mockApiResponse('imbot.v2.Bot.unregister', { result: true });
-
-      await channel.logoutAccount(TEST_ACCOUNT_ID);
-
-      const unregisterCall = mockPost.mock.calls.find(
-        (call) => call[0] === '/imbot.v2.Bot.unregister',
-      );
-      expect(unregisterCall).toBeDefined();
-      expect(unregisterCall![1].botToken).toBe(TEST_BOT_CLIENT_ID);
-      expect(unregisterCall![1].botId).toBe(BOT_ID);
-
-      expect(runtime.logger.info).toHaveBeenCalledWith(
-        expect.stringContaining('unregistered'),
-      );
-    });
-
-    it('should not throw if unregister fails (logs warning instead)', async () => {
-      mockPost.mockImplementation(() => {
-        return Promise.reject(new Error('Bot not found'));
-      });
-
-      // Should not throw
-      await channel.logoutAccount(TEST_ACCOUNT_ID);
-
-      expect(runtime.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to unregister'),
-      );
-    });
-
-    it('should do nothing if account has no botId', async () => {
-      // Create channel without bot registration
-      const freshChannel = new Bitrix24Channel();
-      freshChannel.configure({
-        accounts: [
-          {
-            id: 'no-bot',
-            webhookUrl: TEST_WEBHOOK_URL,
-            domain: 'test-portal.bitrix24.ru',
-          },
-        ],
-      });
-
-      vi.clearAllMocks();
-      await freshChannel.logoutAccount('no-bot');
-
-      // Should not call any API
-      expect(mockPost).not.toHaveBeenCalled();
-
-      freshChannel.destroy();
     });
   });
 });

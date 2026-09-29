@@ -34,96 +34,21 @@ function mapChatType(chat: Bitrix24V2EventChat): ChatType {
   return 'C';
 }
 
-// BBCode tokens that MAY reference an attached Drive file inside
-// `message.text` — see `extractInboundFiles` below for why both are scanned.
-const DISK_TOKEN_PATTERNS = [
-  /\[disk=(\d+)\]/gi,
-  /\[disk\s+file\s+id\s*=\s*(\d+)\]/gi,
-];
-
 /**
- * Defensively extract inbound file attachments from a v2 message event.
+ * Extract inbound file attachments from a v2 message event.
  *
- * LIVE-VERIFIED 2026-07-07 (portal portal.example.bitrix24.ru): a real
- * user-attached document arrives as `message.params.FILE_ID: ["915877"]` —
- * an array of Drive file id STRINGS under the uppercase `FILE_ID` key, with
- * no name/size metadata (fetch those at download time). The docs never
- * spell this out (spec §11: params carry "attach, keyboard, files, and
- * others"), so the previously guessed shapes are kept as fallbacks:
- *   - `params.FILE_ID` as an ARRAY of scalars or a single scalar (LIVE shape)
- *   - `params.files` as an ARRAY: `[{id, name, size}, ...]`
- *   - `params.files` as an OBJECT MAP: `{someKey: {id, name, size}, ...}`
- *   - `[disk=<N>]` BBCode tokens in `message.text` — the documented
- *     *outbound* Drive-file-link tag (message-formatting.md); docs never
- *     confirm whether inbound user-sent files also surface this way
- *   - the legacy `[DISK FILE ID=<N>]` token form, case-insensitive
- * Entries are de-duplicated by id — a file referenced both structurally
- * (`params.files`) and via a text token yields a single attachment.
+ * LIVE-VERIFIED 2026-07-07: a user-attached document arrives as
+ * `message.params.FILE_ID: ["915877"]` — an array of Drive file id strings
+ * (or a single scalar) with no name/size metadata; those come from the
+ * download response headers (see files.ts:downloadFile).
  */
-function extractInboundFiles(
-  params: Record<string, unknown> | undefined,
-  text: string,
-): FileAttachment[] {
-  const byId = new Map<string, FileAttachment>();
-
-  const addFile = (id: string, name?: string, size?: number): void => {
-    if (!id || byId.has(id)) return;
-    const attachment: FileAttachment = { id };
-    if (name !== undefined) attachment.name = name;
-    if (size !== undefined) attachment.size = size;
-    byId.set(id, attachment);
-  };
-
-  const addFromRaw = (raw: unknown): void => {
-    if (!raw || typeof raw !== 'object') return;
-    const obj = raw as Record<string, unknown>;
-    const rawId = obj.id ?? obj.ID ?? obj.fileId;
-    if (rawId === undefined || rawId === null || rawId === '') return;
-
-    const name =
-      typeof obj.name === 'string' ? obj.name
-      : typeof obj.NAME === 'string' ? obj.NAME
-      : undefined;
-
-    const rawSize = obj.size ?? obj.SIZE;
-    let size: number | undefined;
-    if (typeof rawSize === 'number') {
-      size = rawSize;
-    } else if (typeof rawSize === 'string' && rawSize !== '') {
-      const n = Number(rawSize);
-      if (!Number.isNaN(n)) size = n;
-    }
-
-    addFile(String(rawId), name, size);
-  };
-
-  // Rich `params.files` entries first, so a bare FILE_ID for the same file
-  // de-duplicates against the entry that carries name/size.
-  const filesParam = params?.files;
-  if (Array.isArray(filesParam)) {
-    filesParam.forEach(addFromRaw);
-  } else if (filesParam && typeof filesParam === 'object') {
-    Object.values(filesParam as Record<string, unknown>).forEach(addFromRaw);
-  }
-
-  const fileIdParam = params?.FILE_ID;
-  const fileIdList = Array.isArray(fileIdParam) ? fileIdParam : [fileIdParam];
-  for (const rawId of fileIdList) {
-    if (typeof rawId === 'string' || typeof rawId === 'number') {
-      const id = String(rawId).trim();
-      if (id !== '') addFile(id);
-    }
-  }
-
-  for (const pattern of DISK_TOKEN_PATTERNS) {
-    pattern.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text)) !== null) {
-      addFile(match[1]);
-    }
-  }
-
-  return Array.from(byId.values());
+function extractInboundFiles(params: Record<string, unknown> | undefined): FileAttachment[] {
+  const raw = params?.FILE_ID;
+  const ids = (Array.isArray(raw) ? raw : [raw])
+    .filter((id) => typeof id === 'string' || typeof id === 'number')
+    .map((id) => String(id).trim())
+    .filter((id) => id !== '');
+  return [...new Set(ids)].map((id) => ({ id }));
 }
 
 /**
@@ -184,7 +109,7 @@ export function parseMessageEvent(body: Bitrix24MessageEvent): IncomingMessage |
     fromUserLastName: user?.lastName ?? '',
     isBot: false,
     chatType: mapChatType(chat),
-    files: extractInboundFiles(message.params, message.text),
+    files: extractInboundFiles(message.params),
     replyToMessageId: extractReplyToMessageId(message.params),
     domain: auth?.domain ?? '',
     applicationToken: auth?.application_token,

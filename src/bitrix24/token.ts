@@ -11,7 +11,6 @@ import type { BitrixAuth } from './types.js';
  * Returns null if no credentials found.
  */
 export function resolveAuth(opts: {
-  accountId: string;
   accountWebhookUrl?: string;
   accountAccessToken?: string;
   accountRefreshToken?: string;
@@ -65,29 +64,6 @@ export function extractDomain(auth: BitrixAuth): string {
     return new URL(auth.webhookUrl).hostname;
   }
   throw new Error('Cannot extract domain from OAuth auth without explicit domain');
-}
-
-/**
- * Extract domain from a webhook URL string.
- */
-export function domainFromWebhookUrl(webhookUrl: string): string {
-  return new URL(webhookUrl).hostname;
-}
-
-/**
- * Validate that a webhook URL looks correct.
- */
-export function isValidWebhookUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.protocol === 'https:' &&
-      parsed.pathname.startsWith('/rest/') &&
-      parsed.hostname.includes('bitrix24')
-    );
-  } catch {
-    return false;
-  }
 }
 
 function normalizeUrl(url: string | undefined): string | null {

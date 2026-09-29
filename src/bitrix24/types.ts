@@ -19,10 +19,6 @@ export type BitrixAuth = WebhookAuth | OAuthAuth;
 export interface Bitrix24ClientConfig {
   domain: string;
   auth: BitrixAuth;
-  rateLimit?: number; // req/sec, default 2
-  timeout?: number;   // ms, default 30000
-  /** Max retries on a Bitrix24 rate-limit error (QUERY_LIMIT_EXCEEDED / OVERLOAD_LIMIT / OPERATION_TIME_LIMIT / HTTP 503), default 3. */
-  rateLimitMaxRetries?: number;
   /** Base delay in ms for rate-limit retry backoff (delay = baseDelayMs * 2^attempt), default 1000. */
   rateLimitBaseDelayMs?: number;
   /** Called after OAuth tokens are refreshed. Use to persist new tokens. */
@@ -139,17 +135,12 @@ export interface OutgoingMessage {
 // ── Files ────────────────────────────────────────────────────────────────────
 
 /**
- * A file referenced by an inbound message. Only `id` is guaranteed —
- * the inbound shape is UNVERIFIABLE (spec §11); `name`/`size` are populated
- * on a best-effort basis by the defensive parser in receive.ts and are
- * absent entirely for ids recovered only from a `[disk=N]`-style text token.
- * Resolve the bytes later via `imbot.v2.File.download` (files.ts:downloadFile).
+ * A file referenced by an inbound message (`params.FILE_ID`). Resolve the
+ * bytes later via `imbot.v2.File.download` (files.ts:downloadFile).
  */
 export interface FileAttachment {
   id: string;
   name?: string;
-  size?: number;
-  downloadUrl?: string;
 }
 
 export interface MediaAttachment {
@@ -183,48 +174,29 @@ export interface KeyboardMarkup {
 // interfaces model that webhook-mode shape (string-typed scalars); parsers in
 // receive.ts coerce fields into the numeric types `IncomingMessage` expects.
 
-/** Bot object as it appears nested in v2 webhook event payloads. */
+/**
+ * Bot object as it appears nested in v2 webhook event payloads. (Its optional
+ * `auth` bundle is for REST calls back as the bot — distinct from the
+ * top-level `auth` used by `verifyApplicationToken` — and is not read here.)
+ */
 export interface Bitrix24V2EventBot {
   id: string;
   code: string;
-  /**
-   * OAuth-style token bundle for making REST calls back as the bot. Not
-   * always present — Bitrix24 omits it when the triggering hit couldn't be
-   * linked to a specific user (spec §7). Distinct from the top-level `auth`
-   * used to verify webhook authenticity (see `verifyApplicationToken`).
-   */
-  auth?: {
-    access_token?: string;
-    refresh_token?: string;
-    application_token?: string;
-    domain?: string;
-    expires_in?: string;
-    scope?: string;
-    server_endpoint?: string;
-    status?: string;
-    client_endpoint?: string;
-    member_id?: string;
-  };
 }
 
+/** Only the fields the parsers read; the payload carries many more. */
 export interface Bitrix24V2EventMessage {
   id: string;
   chatId: string;
   /** `"0"` = system message. */
   authorId: string;
-  date?: string;
   text: string;
   isSystem?: string;
-  uuid?: string;
-  forward?: { id: string; userId: string; chatId: string; date: string } | null;
   /**
-   * "Additional parameters: attach, keyboard, files, and others" per the
-   * docs — no exact sub-schema for `params.files` is documented anywhere in
-   * the v2 API (spec §11, marked UNVERIFIABLE). Left untyped here; parsed
-   * defensively by `extractInboundFiles` in receive.ts.
+   * "Additional parameters: attach, keyboard, files, and others" — no exact
+   * sub-schema is documented (spec §11). Parsed defensively in receive.ts.
    */
   params?: Record<string, unknown>;
-  viewedByOthers?: string;
 }
 
 export interface Bitrix24V2EventChat {
@@ -232,36 +204,15 @@ export interface Bitrix24V2EventChat {
   /** `chat5`-style for groups, bare `{userId}` for private (P2P) dialogs. */
   dialogId: string;
   type: string; // 'chat' | 'open' | 'channel' | 'openChannel' | 'copilot' | 'thread' | 'generalChannel'
-  name?: string;
-  entityType?: string;
-  owner?: string;
-  avatar?: string;
-  color?: string;
 }
 
 export interface Bitrix24V2EventUser {
   id: string;
-  active?: string;
   name?: string;
   firstName?: string;
   lastName?: string;
-  workPosition?: string;
-  color?: string;
-  avatar?: string;
-  gender?: string;
-  birthday?: string;
-  extranet?: string;
   /** `"1"`/`"0"` — true when the message author is itself a bot. */
   bot?: string;
-  connector?: string;
-  externalAuthId?: string;
-  status?: string;
-  idle?: string;
-  lastActivityDate?: string;
-  absent?: string;
-  departments?: string[];
-  phones?: string;
-  type?: string;
 }
 
 /**
@@ -321,12 +272,4 @@ export interface BitrixApiResponse<T = any> {
   };
   error?: string;
   error_description?: string;
-}
-
-// ── Token Resolution ─────────────────────────────────────────────────────────
-
-export interface TokenResolutionConfig {
-  accountWebhookUrl?: string;
-  globalWebhookUrl?: string;
-  envVar?: string; // BITRIX24_WEBHOOK_URL
 }

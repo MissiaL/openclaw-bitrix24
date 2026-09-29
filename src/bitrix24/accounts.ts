@@ -46,12 +46,10 @@ export class AccountManager {
 
     const globalWebhookUrl = config.webhookUrl;
 
-    for (const raw of config.accounts ?? []) {
+    const add = (raw: NonNullable<RawChannelConfig['accounts']>[number]): void => {
       const id = raw.id ?? 'default';
-      const isDefault = id === 'default';
 
       const auth = resolveAuth({
-        accountId: id,
         accountWebhookUrl: raw.webhookUrl,
         accountAccessToken: raw.accessToken,
         accountRefreshToken: raw.refreshToken,
@@ -59,16 +57,14 @@ export class AccountManager {
         accountClientSecret: raw.clientSecret ?? config.clientSecret,
         accountExpiresAt: raw.expiresAt,
         globalWebhookUrl,
-        isDefault,
+        isDefault: id === 'default',
       });
 
-      if (!auth) continue;
+      if (!auth) return;
 
-      const domain = raw.domain ?? extractDomain(auth);
-
-      const account: AccountConfig = {
+      this.accounts.set(id, {
         id,
-        domain,
+        domain: raw.domain ?? extractDomain(auth),
         auth,
         enabled: raw.enabled !== false,
         textChunkLimit: raw.textChunkLimit ?? 18000,
@@ -88,39 +84,13 @@ export class AccountManager {
         commandUsers: raw.commandUsers ?? config.commandUsers ?? [],
         allowUsers: raw.allowUsers ?? config.allowUsers,
         applicationToken: raw.applicationToken,
-      };
-
-      this.accounts.set(id, account);
-    }
-
-    // If no accounts configured but global/env auth available, create default
-    if (this.accounts.size === 0) {
-      const auth = resolveAuth({
-        accountId: 'default',
-        globalWebhookUrl,
-        isDefault: true,
       });
-      if (auth) {
-        this.accounts.set('default', {
-          id: 'default',
-          domain: extractDomain(auth),
-          auth,
-          enabled: true,
-          textChunkLimit: 18000,
-          bot: {
-            name: 'OpenClaw Agent',
-            color: 'PURPLE',
-            workPosition: 'AI Assistant',
-            clientId: deriveBotClientId(auth),
-          },
-          dmPolicy: 'open',
-          configWrites: config.configWrites ?? false,
-          dynamicAgentCreation: config.dynamicAgentCreation,
-          commandUsers: config.commandUsers ?? [],
-          allowUsers: config.allowUsers,
-        });
-      }
-    }
+    };
+
+    (config.accounts ?? []).forEach(add);
+
+    // No usable account entries but global/env auth available: implicit default.
+    if (this.accounts.size === 0) add({});
   }
 
   listAccounts(): AccountConfig[] {

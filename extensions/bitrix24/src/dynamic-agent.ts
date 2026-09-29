@@ -87,10 +87,6 @@ function resolveSettings(cfg: any, accountId: string): EffectiveDynamicSettings 
   };
 }
 
-function hasAgent(cfg: any, agentId: string): boolean {
-  return (cfg?.agents?.list ?? []).some((agent: any) => agent?.id === agentId);
-}
-
 function findAgent(cfg: any, agentId: string): any | undefined {
   return (cfg?.agents?.list ?? []).find((agent: any) => agent?.id === agentId);
 }
@@ -243,7 +239,7 @@ function preflightReason(params: {
   if (!params.settings.configWrites) return 'config-writes-disabled';
   if (params.settings.dmPolicy !== 'open') return 'dm-policy-not-open';
   if (
-    !hasAgent(params.cfg, params.dynamicAgentId) &&
+    !findAgent(params.cfg, params.dynamicAgentId) &&
     dynamic.maxAgents !== undefined &&
     countDynamicAgents(params.cfg, params.accountId) >= dynamic.maxAgents
   ) {
@@ -377,7 +373,7 @@ export async function maybeCreateDynamicAgent(params: {
         }
 
         const dynamic = lockedSettings.dynamicAgentCreation;
-        const agentExists = hasAgent(draft, dynamicAgentId);
+        const agentExists = Boolean(findAgent(draft, dynamicAgentId));
         if (!agentExists) {
           const lockedSourceAgent = findAgent(draft, dynamic.sourceAgentId!);
           const lockedSourceWorkspace = resolveSourceWorkspace(

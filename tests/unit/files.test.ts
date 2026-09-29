@@ -1,22 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Bitrix24Client } from '../../src/bitrix24/client.js';
 import { sendFile, downloadFile } from '../../src/bitrix24/files.js';
+import { mockHttp } from '../helpers/http-mock.js';
 
-vi.mock('axios', () => {
-  const mockPost = vi.fn();
-  const mockGet = vi.fn();
-  const mockCreate = vi.fn(() => ({ post: mockPost, get: mockGet }));
-  return {
-    default: {
-      create: mockCreate,
-      get: mockGet,
-    },
-    __mockPost: mockPost,
-    __mockGet: mockGet,
-  };
-});
-
-const { __mockPost: mockPost, __mockGet: mockGet } = await import('axios') as any;
+const { mockPost, mockGet } = mockHttp();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -133,7 +120,6 @@ describe('downloadFile', () => {
     });
     expect(mockGet).toHaveBeenCalledWith(
       'https://test.bitrix24.ru/rest/download.json?token=imbot%7Cabc',
-      expect.objectContaining({ responseType: 'arraybuffer' }),
     );
     expect(result.buffer.toString()).toBe('file bytes');
     expect(result.fileName).toBe('report.pdf');
