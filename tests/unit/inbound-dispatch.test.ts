@@ -369,7 +369,7 @@ describe('wireInboundDispatch', () => {
   });
 
   // Inbound files (live-verified FILE_ID shape) must reach the agent as
-  // host-standard media context: MediaPaths (local temp files) + MediaTypes.
+  // host-standard ordered media facts: ctx.media[] (local temp files).
   // Without this the model never sees the attachment — observed live: user
   // sent a document, agent honestly replied it can't see any attachment.
   describe('inbound file attachments', () => {
@@ -385,7 +385,7 @@ describe('wireInboundDispatch', () => {
           makeIncomingMessage({ files: [{ id: '915877', name: 'doc.pdf' }] }),
         );
 
-        const mediaPath = (run as any).lastTurn.ctxPayload.MediaPaths[0];
+        const mediaPath = (run as any).lastTurn.ctxPayload.media[0].path;
         expect(mediaPath.startsWith(`${workspaceDir}${sep}`)).toBe(true);
         expect(runtime.agent.resolveAgentWorkspaceDir).toHaveBeenCalledWith(api.config, 'main');
       } finally {
@@ -393,7 +393,7 @@ describe('wireInboundDispatch', () => {
       }
     });
 
-    it('downloads files and exposes MediaPaths/MediaTypes in ctxPayload', async () => {
+    it('downloads files and exposes them as media facts in ctxPayload', async () => {
       const { runtime, run } = makeRuntime();
       const api = makeFakeApi({ runtime });
 
@@ -405,11 +405,13 @@ describe('wireInboundDispatch', () => {
 
       expect(channel.downloadAttachment).toHaveBeenCalledWith(ACCOUNT_ID, '915877', 'doc.pdf');
       const ctx = (run as any).lastTurn.ctxPayload;
-      expect(ctx.MediaTypes).toEqual(['application/pdf']);
-      expect(ctx.MediaPaths).toHaveLength(1);
+      expect(ctx.media).toHaveLength(1);
+      expect(ctx.media[0]).toMatchObject({ contentType: 'application/pdf', fileName: 'doc.pdf' });
+      expect(ctx.media[0].messageId).toEqual(expect.any(String));
+      expect(ctx.MediaPaths).toBeUndefined();
       const fs = await import('node:fs');
-      expect(fs.readFileSync(ctx.MediaPaths[0], 'utf8')).toBe('file-bytes');
-      expect(ctx.MediaPaths[0]).toContain('doc.pdf');
+      expect(fs.readFileSync(ctx.media[0].path, 'utf8')).toBe('file-bytes');
+      expect(ctx.media[0].path).toContain('doc.pdf');
     });
 
     it('preserves Unicode (Cyrillic) file names when staging', async () => {
@@ -425,7 +427,7 @@ describe('wireInboundDispatch', () => {
       await channel.trigger(ACCOUNT_ID, makeIncomingMessage({ files: [{ id: '9' }] }));
 
       const ctx = (run as any).lastTurn.ctxPayload;
-      expect(ctx.MediaPaths[0]).toContain('Проект_электрики_(кв._230).pdf');
+      expect(ctx.media[0].path).toContain('Проект_электрики_(кв._230).pdf');
     });
 
     it('a failed download degrades to a text-only turn instead of crashing', async () => {
@@ -441,7 +443,7 @@ describe('wireInboundDispatch', () => {
 
       expect(run).toHaveBeenCalledOnce();
       const ctx = (run as any).lastTurn.ctxPayload;
-      expect(ctx.MediaPaths).toBeUndefined();
+      expect(ctx.media).toBeUndefined();
       expect(api.logger.warn).toHaveBeenCalled();
     });
 
@@ -453,7 +455,7 @@ describe('wireInboundDispatch', () => {
       await channel.trigger(ACCOUNT_ID, makeIncomingMessage());
 
       expect(channel.downloadAttachment).not.toHaveBeenCalled();
-      expect((run as any).lastTurn.ctxPayload.MediaPaths).toBeUndefined();
+      expect((run as any).lastTurn.ctxPayload.media).toBeUndefined();
     });
   });
 

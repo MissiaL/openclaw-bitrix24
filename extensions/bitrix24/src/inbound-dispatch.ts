@@ -33,19 +33,27 @@ const debugPayloads = (): boolean => Boolean(process.env.BITRIX24_DEBUG);
 const SAFE_ERROR_REPLY = 'Не удалось завершить действие. Попробуйте повторить запрос.';
 
 /**
- * Download inbound Drive attachments and stage them as local temp files in
- * the host's standard inbound-media shape (`MediaPaths` + `MediaTypes` on the
- * finalized msg context — the same fields the bundled feishu channel sets).
+ * Download inbound Drive attachments and stage them as local temp files,
+ * returned as the host's ordered inbound media facts (`media` on the
+ * finalized msg context; array position is attachment identity).
  * Best-effort per file: a failed download logs a warning and is skipped, so
  * the turn degrades to text-only instead of dying.
  */
+/** Host `InboundMediaFacts` subset this channel fills (plugin has no SDK dep). */
+type InboundMediaFact = {
+  path: string;
+  contentType: string;
+  fileName: string;
+  messageId: string;
+};
+
 async function stageInboundMedia(
   api: any,
   channel: Bitrix24Channel,
   accountId: string,
   msg: IncomingMessage,
   workspaceDir?: string,
-): Promise<{ MediaPaths: string[]; MediaTypes: string[] } | undefined> {
+): Promise<InboundMediaFact[] | undefined> {
   if (!msg.files?.length) return undefined;
   if (!workspaceDir) {
     api.logger.warn(
@@ -54,8 +62,7 @@ async function stageInboundMedia(
     return undefined;
   }
 
-  const paths: string[] = [];
-  const types: string[] = [];
+  const facts: InboundMediaFact[] = [];
   let dir: string | undefined;
   const inboundRoot = join(workspaceDir, '.openclaw', 'media', 'inbound');
   for (const file of msg.files) {
@@ -77,8 +84,12 @@ async function stageInboundMedia(
       );
       const filePath = join(dir, `${file.id}-${safeName}`);
       await writeFile(filePath, media.buffer);
-      paths.push(filePath);
-      types.push(media.mimeType);
+      facts.push({
+        path: filePath,
+        contentType: media.mimeType,
+        fileName: safeName,
+        messageId: String(msg.messageId),
+      });
       api.logger.info(
         `[bitrix24] staged inbound file id=${file.id} name=${safeName} ` +
           `type=${media.mimeType} bytes=${media.buffer.length} -> ${filePath}`,
@@ -89,7 +100,7 @@ async function stageInboundMedia(
       );
     }
   }
-  return paths.length > 0 ? { MediaPaths: paths, MediaTypes: types } : undefined;
+  return facts.length > 0 ? facts : undefined;
 }
 
 async function readAllowedOutboundMedia(
@@ -235,7 +246,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
       const rememberedText =
         body ||
         (media
-          ? `[файл: ${media.MediaPaths.map((p) => p.split('/').pop()?.replace(/^\d+-/, '')).join(', ')}]`
+          ? `[файл: ${media.map((m) => m.fileName).join(', ')}]`
           : '');
       if (rememberedText) {
         channel.rememberMessage(routeAccountId, String(msg.messageId), {
@@ -275,7 +286,7 @@ export function wireInboundDispatch(api: any, channel: Bitrix24Channel): void {
 
       // 3) Finalize inbound context.
       const rawCtx = {
-        ...(media ?? {}),
+        ...(media ? { media } : {}),
         ...replyCtx,
         ...(commandAuthorized ? { CommandAuthorized: true } : {}),
         Body: body,
